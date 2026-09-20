@@ -1,0 +1,86 @@
+name: CI — Restaurant Approval Monolith
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "restaurant-approval/**"
+      - "pom.xml"
+      - "mvnw"
+      - ".mvn/**"
+      - ".github/workflows/restaurant-approval-monolith.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  MAVEN_OPTS: -Xmx2g -Xms512m
+  MAVEN_ARGS_BUILD: -B -T 1C -V -Dmaven.test.redirectTestOutputToFile=true -Dsurefire.parallel=none -Dfailsafe.parallel=none
+
+jobs:
+  restaurant-approval-monolith:
+    name: Restaurant Approval Monolith + Next.js
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: restaurant-approval/nextjs-ui/package-lock.json
+
+      - name: Configure Maven
+        run: echo "MAVEN_ARGS=${{ env.MAVEN_ARGS_BUILD }} --no-transfer-progress -Dmaven.repo.local=$GITHUB_WORKSPACE/.m2/repository" >> "$GITHUB_ENV"
+
+      - name: Run restaurant-approval monolith await test
+        run: |
+          read -r -a maven_args <<< "$MAVEN_ARGS"
+          ./mvnw "${maven_args[@]}" -f restaurant-approval/pom.xml \
+            -pl monolith-svc \
+            -am \
+            -Dtest=RestaurantApprovalAwaitMonolithTest \
+            -Dsurefire.failIfNoSpecifiedTests=false \
+            test
+
+      - name: Run Next.js UI tests
+        run: |
+          npm --prefix restaurant-approval/nextjs-ui ci
+          npm --prefix restaurant-approval/nextjs-ui test
+
+      - name: Build Next.js UI
+        run: npm --prefix restaurant-approval/nextjs-ui run build
+
+      - name: Dump reports on failure
+        if: failure()
+        run: |
+          find restaurant-approval -path "*/target/surefire-reports/*.txt" -print -exec tail -n 200 {} \;
+
+      - name: Upload reports on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: restaurant-approval-reports
+          path: |
+            restaurant-approval/**/target/surefire-reports/*.txt
+            restaurant-approval/**/target/surefire-reports/*.xml
+          retention-days: 7
+          if-no-files-found: warn
