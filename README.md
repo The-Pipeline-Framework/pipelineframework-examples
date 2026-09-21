@@ -7,6 +7,7 @@ of their own.
 
 ## Catalogue
 
+- `ai-sdk` — AI-shaped reactive services, gRPC DTO mappings, and a six-step operator-delegation stress test
 - `callable-loop-proof` — an imported Block that owns an ordinary callable loop
 - `graphql-block-proof` — a GraphQL Block plus application-owned connector bindings
 - `local-command-proof` — replay-safe local Command execution
@@ -20,7 +21,7 @@ The GraphQL proof keeps its application-specific connectors under
 
 Real applications and long-lived reference implementations intentionally live elsewhere:
 
-- `csv-payments` and `rag-turnkey` are independently owned applications.
+- `csv-kafka-payments` and `rag-turnkey` are independently owned applications.
 - Checkout/TPFGo, Search, and QuickBooks Collections Briefing are reference implementations.
 - Spring smoke tests belong to the standalone runtime repository that owns Spring behavior.
 

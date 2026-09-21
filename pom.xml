@@ -108,6 +108,7 @@
     </pluginRepositories>
 
     <modules>
+        <module>ai-sdk</module>
         <module>callable-loop-proof/block</module>
         <module>callable-loop-proof/connectors</module>
         <module>callable-loop-proof</module>
