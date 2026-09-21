@@ -6,6 +6,10 @@ import io.smallrye.mutiny.Uni;
 import org.pipelineframework.service.ReactiveService;
 
 import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.List;
 
 /**
@@ -18,7 +22,7 @@ public class EmbeddingService implements ReactiveService<String, Vector> {
      * Create a Vector containing a deterministic 128-dimensional embedding for the given input text.
      *
      * <p>If {@code input} is {@code null} it is treated as the empty string. The returned Vector's id
-     * uses the form {@code "embedding_<nonNegativeHash>"} and its values are a deterministic 128-element
+     * uses the form {@code "embedding_<sha256>"} and its values are a deterministic 128-element
      * float list derived from the input text.
      *
      * @param input the text to embed; {@code null} is treated as an empty string
@@ -29,11 +33,20 @@ public class EmbeddingService implements ReactiveService<String, Vector> {
         String safeInput = input == null ? "" : input;
         // Generate deterministic embedding based on text hash
         List<Float> embedding = generateDeterministicEmbedding(safeInput);
-        int nonNegativeHash = safeInput.hashCode() & 0x7fffffff;
-        String id = "embedding_" + nonNegativeHash;
+        String id = "embedding_" + sha256(safeInput);
         Vector vector = new Vector(id, embedding);
 
         return Uni.createFrom().item(vector);
+    }
+
+    private String sha256(String input) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(input.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
     }
 
     /**

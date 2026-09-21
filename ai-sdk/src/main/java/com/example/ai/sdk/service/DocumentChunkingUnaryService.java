@@ -26,7 +26,7 @@ public class DocumentChunkingUnaryService implements ReactiveService<Document, C
     @Override
     public Uni<Chunk> process(Document input) {
         if (input == null) {
-            throw new IllegalArgumentException("Document input must not be null");
+            return Uni.createFrom().failure(new IllegalArgumentException("Document input must not be null"));
         }
         return chunkingService.process(input)
                 .collect().first()

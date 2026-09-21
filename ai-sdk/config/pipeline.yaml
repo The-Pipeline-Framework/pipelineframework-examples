@@ -9,9 +9,6 @@ steps:
   - name: "Embed Chunk"
     operator: "com.example.ai.sdk.service.ChunkEmbeddingService::process"
 
-  - name: "Store Vector"
-    operator: "com.example.ai.sdk.service.VectorStoreService::process"
-
   - name: "Search Similar"
     operator: "com.example.ai.sdk.service.SimilaritySearchUnaryService::process"
 

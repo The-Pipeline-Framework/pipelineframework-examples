@@ -18,6 +18,8 @@ import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class UnaryOperatorServicesTest {
@@ -43,6 +45,29 @@ class UnaryOperatorServicesTest {
                 .await().atMost(Duration.ofSeconds(2));
 
         assertEquals(expected, result);
+    }
+
+    @Test
+    void documentChunkingUnaryReturnsFailedUniForNullInput() {
+        DocumentChunkingUnaryService service = new DocumentChunkingUnaryService();
+
+        Uni<Chunk> result = service.process(null);
+
+        assertNotNull(result);
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> result.await().atMost(Duration.ofSeconds(2)));
+        assertEquals("Document input must not be null", error.getMessage());
+    }
+
+    @Test
+    void embeddingIdentifiersDoNotReuseStringHashCodeCollisions() {
+        EmbeddingService service = new EmbeddingService();
+
+        Vector first = service.process("Aa").await().atMost(Duration.ofSeconds(2));
+        Vector second = service.process("BB").await().atMost(Duration.ofSeconds(2));
+
+        assertNotEquals(first.id(), second.id());
     }
 
     @Test

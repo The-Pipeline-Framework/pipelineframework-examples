@@ -105,8 +105,6 @@ steps:
     operator: "com.example.ai.sdk.service.DocumentChunkingUnaryService::process"
   - name: "Embed Chunk"
     operator: "com.example.ai.sdk.service.ChunkEmbeddingService::process"
-  - name: "Store Vector"
-    operator: "com.example.ai.sdk.service.VectorStoreService::process"
   - name: "Search Similar"
     operator: "com.example.ai.sdk.service.SimilaritySearchUnaryService::process"
   - name: "Build Prompt"
@@ -115,7 +113,7 @@ steps:
     operator: "com.example.ai.sdk.service.LLMCompletionService::process"
 ```
 
-The same full 6-step chain is committed in this module at `config/pipeline.yaml`.
+The same full 5-step chain is committed in this module at `config/pipeline.yaml`.
 This is the PoC centerpiece: pipeline assembly via YAML operator references, without `@PipelineStep` wrapper classes.
 
 ## Key Features
