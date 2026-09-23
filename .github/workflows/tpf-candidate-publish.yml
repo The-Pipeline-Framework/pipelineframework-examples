@@ -1,0 +1,113 @@
+name: TPF Candidate Publish
+
+on:
+  workflow_run:
+    workflows: [TPF Candidate Build]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tpf-candidate-publish-${{ github.event.workflow_run.head_repository.full_name || github.event.workflow_run.repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.repository.full_name == 'The-Pipeline-Framework/pipelineframework-examples' &&
+      vars.SYSTEM_TEST_APP_ID != '' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'pull_request')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout trusted default-branch publisher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Download untrusted build metadata artifact
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v7.0.0
+        with:
+          name: tpf-candidate-build
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          path: candidate-build
+
+      - name: Fetch current PR metadata when applicable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_PR_JSON: ${{ runner.temp }}/current-pr.json
+        run: |
+          PULL_REQUEST_NUMBER="$(python3 - <<'PY'
+          import json
+          number = json.load(open("candidate-build/build-metadata.json"))["pullRequestNumber"]
+          if number is None:
+              print("")
+          elif type(number) is int and number > 0:
+              print(number)
+          else:
+              raise SystemExit("candidate pullRequestNumber must be null or a positive integer")
+          PY
+          )"
+          if [[ -n "$PULL_REQUEST_NUMBER" ]]; then
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${PULL_REQUEST_NUMBER}" > "$CURRENT_PR_JSON"
+          else
+            printf '{}\n' > "$CURRENT_PR_JSON"
+          fi
+
+      - name: Validate source head, workflow association, label, and metadata checksum
+        env:
+          BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
+          BUILD_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          BUILD_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          BUILD_RUN_EVENT: ${{ github.event.workflow_run.event }}
+          BUILD_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          BUILD_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          BUILD_RUN_DEFAULT_BRANCH: ${{ github.event.workflow_run.repository.default_branch }}
+          BUILD_RUN_PATH: ${{ github.event.workflow_run.path }}
+          BUILD_RUN_REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
+          BUILD_ASSOCIATED_PRS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+          CURRENT_PR_JSON: ${{ runner.temp }}/current-pr.json
+        run: python3 scripts/finalize-source-candidate.py candidate-build "$CURRENT_PR_JSON"
+
+      - name: Create TPF system-test GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.0.6
+        with:
+          app-id: ${{ vars.SYSTEM_TEST_APP_ID }}
+          private-key: ${{ secrets.SYSTEM_TEST_APP_PRIVATE_KEY }}
+          owner: The-Pipeline-Framework
+          repositories: pipelineframework
+          permission-contents: write
+
+      - name: Upload final candidate manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: tpf-candidate-manifest
+          path: candidate-build/candidate-manifest/candidate-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload final candidate event
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: tpf-candidate-event
+          path: candidate-build/candidate-event/event.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Dispatch candidate system test
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          jq -n --slurpfile event candidate-build/candidate-event/event.json \
+            '{event_type:"tpf-candidate-v1",client_payload:$event[0]}' \
+            | gh api --method POST repos/The-Pipeline-Framework/pipelineframework/dispatches --input -

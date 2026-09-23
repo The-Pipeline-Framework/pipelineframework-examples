@@ -1,0 +1,57 @@
+name: TPF Candidate Build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tpf-candidate-build-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact pull request head or main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Java 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Run the full owner-local verification once
+        run: >-
+          ./mvnw -B -Dmaven.deploy.skip=true -Dgpg.skip=true -Dtpf.flatten.skip=true
+          -Dmaven.repo.local="${{ runner.temp }}/tpf-candidate-m2" clean verify
+
+      - name: Create source candidate build metadata
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SOURCE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number || '' }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: python3 scripts/create-candidate-build-metadata.py "$RUNNER_TEMP/tpf-candidate-build"
+
+      - name: Upload candidate build metadata
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: tpf-candidate-build
+          path: ${{ runner.temp }}/tpf-candidate-build
+          if-no-files-found: error
+          retention-days: 7
