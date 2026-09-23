@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "suites": {
+    "verify": {
+      "command": ["bash", "scripts/run-system-test-suite.sh", "verify"],
+      "timeoutMinutes": 120
+    },
+    "restaurant-ha": {
+      "command": ["bash", "scripts/run-system-test-suite.sh", "restaurant-ha"],
+      "timeoutMinutes": 150
+    }
+  }
+}
