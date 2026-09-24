@@ -65,8 +65,8 @@
             <!-- Pipeline Framework BOM -->
             <dependency>
                 <groupId>org.pipelineframework</groupId>
-                <artifactId>framework-parent</artifactId>
-                <version>${pipelineframework.runtime.version}</version>
+                <artifactId>pipelineframework-bom</artifactId>
+                <version>${pipelineframework.bom.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
