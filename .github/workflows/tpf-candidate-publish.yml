@@ -71,7 +71,7 @@ jobs:
           BUILD_RUN_EVENT: ${{ github.event.workflow_run.event }}
           BUILD_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           BUILD_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          BUILD_RUN_DEFAULT_BRANCH: ${{ github.event.workflow_run.repository.default_branch }}
+          BUILD_RUN_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           BUILD_RUN_PATH: ${{ github.event.workflow_run.path }}
           BUILD_RUN_REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
           BUILD_ASSOCIATED_PRS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
