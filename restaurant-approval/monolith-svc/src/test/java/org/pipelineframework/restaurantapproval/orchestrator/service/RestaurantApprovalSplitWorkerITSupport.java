@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.restassured.http.ContentType;
 import io.restassured.path.json.JsonPath;
@@ -79,21 +80,35 @@ abstract class RestaurantApprovalSplitWorkerITSupport {
         String workerProtocol,
         String workerEndpoint) throws IOException {
         Path releaseJar = locateReleaseArtifact();
-        Map<String, Object> contract = readPipelineContract(releaseJar);
-        String contractVersion = String.valueOf(contract.get("contractVersion"));
+        JsonNode contract = readPipelineContract(releaseJar);
+        String contractVersion = contract.path("contractVersion").asText();
+        List<String> stepIds = new ArrayList<>();
+        contract.path("steps").forEach(step -> stepIds.add(step.path("authoredName").asText()));
+        List<String> capabilities = new ArrayList<>();
+        JsonNode contractCapabilities = contract.path("capabilities");
+        if (contractCapabilities.path("localTransitionExecution").asBoolean()) {
+            capabilities.add("local");
+        }
+        contractCapabilities.path("transitionWorkerProtocols")
+            .forEach(protocol -> {
+                if (!capabilities.contains(protocol.asText())) {
+                    capabilities.add(protocol.asText());
+                }
+            });
         Path releaseDescriptor = Files.createTempFile("restaurant-pipeline-release-", ".json");
         JSON.writeValue(releaseDescriptor.toFile(), Map.of(
             "schemaVersion", 1,
             "pipelineId", PIPELINE_ID,
             "contractVersion", contractVersion,
             "releaseVersion", contractVersion,
+            "compiledTruthArtifactId", "restaurant-approval-monolith",
             "artifacts", List.of(Map.of(
                 "artifactId", "restaurant-approval-monolith",
                 "kind", "jar",
-                "uri", releaseJar.toString(),
+                "uri", releaseJar.toUri().toASCIIString(),
                 "digest", "sha256:" + sha256(releaseJar),
-                "stepIds", List.of(),
-                "capabilities", List.of("rest-transition-worker")))));
+                "stepIds", stepIds,
+                "capabilities", capabilities))));
         JsonPath registered = given()
             .baseUri("http://localhost")
             .port(coordinatorPort)
@@ -522,15 +537,14 @@ abstract class RestaurantApprovalSplitWorkerITSupport {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> readPipelineContract(Path jarPath) throws IOException {
+    private static JsonNode readPipelineContract(Path jarPath) throws IOException {
         try (JarFile jar = new JarFile(jarPath.toFile())) {
             var entry = jar.getJarEntry("META-INF/pipeline/pipeline-contract.json");
             if (entry == null) {
                 throw new IOException("JAR is missing META-INF/pipeline/pipeline-contract.json");
             }
             try (var stream = jar.getInputStream(entry)) {
-                return JSON.readValue(stream, Map.class);
+                return JSON.readTree(stream);
             }
         }
     }

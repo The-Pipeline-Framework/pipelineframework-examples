@@ -88,19 +88,27 @@ def create_release(args):
     digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
     contract_version = contract["contractVersion"]
     release_version = args.release_version or contract_version
+    capabilities = []
+    contract_capabilities = contract.get("capabilities", {})
+    if contract_capabilities.get("localTransitionExecution"):
+        capabilities.append("local")
+    for protocol in contract_capabilities.get("transitionWorkerProtocols", []):
+        if protocol not in capabilities:
+            capabilities.append(protocol)
     descriptor = {
         "schemaVersion": 1,
         "pipelineId": args.pipeline_id,
         "contractVersion": contract_version,
         "releaseVersion": release_version,
+        "compiledTruthArtifactId": "restaurant-approval-monolith",
         "artifacts": [
             {
                 "artifactId": "restaurant-approval-monolith",
                 "kind": "jar",
-                "uri": str(artifact_path),
+                "uri": artifact_path.as_uri(),
                 "digest": f"sha256:{digest}",
                 "stepIds": [step.get("authoredName") for step in contract.get("steps", [])],
-                "capabilities": ["local-transition-execution", "rest-transition-worker"],
+                "capabilities": capabilities,
             }
         ],
     }
