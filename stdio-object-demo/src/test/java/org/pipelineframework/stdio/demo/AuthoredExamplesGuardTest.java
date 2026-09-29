@@ -34,13 +34,24 @@ class AuthoredExamplesGuardTest {
             files.filter(Files::isRegularFile)
                 .filter(AuthoredExamplesGuardTest::isAuthoredRepositoryFile)
                 .filter(path -> path.toString().endsWith(".java"))
-                .filter(path -> path.startsWith(repoRoot.resolve("src/main/java"))
-                    || path.toString().contains("/src/main/java/"))
+                .filter(path -> isMainJavaSource(repoRoot, path))
                 .forEach(path -> recordViolations(path, LEGACY_PIPELINE_STEP_METADATA, violations));
         }
 
         assertTrue(violations.isEmpty(), "Authored examples contain deprecated TPF metadata:\n"
             + String.join("\n", violations));
+    }
+
+    private static boolean isMainJavaSource(Path repoRoot, Path path) {
+        Path relativePath = repoRoot.relativize(path);
+        for (int index = 0; index <= relativePath.getNameCount() - 3; index++) {
+            if (relativePath.getName(index).toString().equals("src")
+                && relativePath.getName(index + 1).toString().equals("main")
+                && relativePath.getName(index + 2).toString().equals("java")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Path findRepositoryRoot() {
