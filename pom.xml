@@ -127,6 +127,14 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- Align transitive Expansion members with the tested component set. -->
+            <dependency>
+                <groupId>org.pipelineframework</groupId>
+                <artifactId>pipelineframework-bom</artifactId>
+                <version>${pipelineframework.bom.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <!-- Quarkus BOM -->
             <dependency>
                 <groupId>${quarkus.platform.group-id}</groupId>
