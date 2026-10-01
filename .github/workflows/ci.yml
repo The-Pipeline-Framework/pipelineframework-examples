@@ -24,5 +24,7 @@ jobs:
           java-version: '21'
           cache: maven
           cache-path: ${{ github.workspace }}/.m2/repository
+      - name: Verify Block candidate BOM alignment
+        run: python3 scripts/test-bom-alignment.py
       - name: Verify examples
         run: ./mvnw clean verify -U -Dgpg.skip -Dquarkus.http.test-port=0 -Dquarkus.grpc.server.test-port=0 -Dmaven.repo.local="$GITHUB_WORKSPACE/.m2/repository"
