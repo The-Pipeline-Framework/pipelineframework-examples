@@ -1,64 +1,116 @@
 {
-  "version" : 2,
+  "version" : 3,
   "appName" : "stdio-object-demo",
   "basePackage" : "org.pipelineframework.stdio.demo",
-  "messages" : {
+  "messages" : { },
+  "unions" : { },
+  "types" : {
     "GreetingRequests" : {
       "name" : "GreetingRequests",
+      "kind" : "record",
       "fields" : [ {
         "number" : 1,
         "name" : "names",
-        "canonicalType" : "string",
-        "messageRef" : null,
-        "keyType" : null,
-        "valueType" : null,
-        "optional" : false,
-        "repeated" : false,
-        "deprecated" : false,
-        "protoType" : "string",
-        "referenceField" : null
+        "protoName" : "names",
+        "type" : "string",
+        "repeated" : true,
+        "presence" : "REQUIRED",
+        "nullability" : "NON_NULL",
+        "constraints" : {
+          "minItems" : null,
+          "maxItems" : null
+        },
+        "nullMarkerNumber" : null,
+        "nullMarkerProtoName" : null
       } ],
+      "target" : null,
+      "variants" : [ ],
       "reservedNumbers" : [ ],
-      "reservedNames" : [ ]
-    },
-    "GreetingResponse" : {
-      "name" : "GreetingResponse",
-      "fields" : [ {
-        "number" : 1,
-        "name" : "greetings",
-        "canonicalType" : "string",
-        "messageRef" : null,
-        "keyType" : null,
-        "valueType" : null,
-        "optional" : false,
-        "repeated" : false,
-        "deprecated" : false,
-        "protoType" : "string",
-        "referenceField" : null
-      } ],
-      "reservedNumbers" : [ ],
-      "reservedNames" : [ ]
+      "reservedNames" : [ ],
+      "constraints" : {
+        "minLength" : null,
+        "maxLength" : null,
+        "pattern" : null,
+        "format" : null,
+        "minimum" : null,
+        "minimumExclusive" : null,
+        "maximum" : null,
+        "maximumExclusive" : null,
+        "allowedValues" : [ ]
+      },
+      "contributedIdentity" : null
     },
     "NormalizedGreetings" : {
       "name" : "NormalizedGreetings",
+      "kind" : "record",
       "fields" : [ {
         "number" : 1,
         "name" : "names",
-        "canonicalType" : "string",
-        "messageRef" : null,
-        "keyType" : null,
-        "valueType" : null,
-        "optional" : false,
-        "repeated" : false,
-        "deprecated" : false,
-        "protoType" : "string",
-        "referenceField" : null
+        "protoName" : "names",
+        "type" : "string",
+        "repeated" : true,
+        "presence" : "REQUIRED",
+        "nullability" : "NON_NULL",
+        "constraints" : {
+          "minItems" : null,
+          "maxItems" : null
+        },
+        "nullMarkerNumber" : null,
+        "nullMarkerProtoName" : null
       } ],
+      "target" : null,
+      "variants" : [ ],
       "reservedNumbers" : [ ],
-      "reservedNames" : [ ]
+      "reservedNames" : [ ],
+      "constraints" : {
+        "minLength" : null,
+        "maxLength" : null,
+        "pattern" : null,
+        "format" : null,
+        "minimum" : null,
+        "minimumExclusive" : null,
+        "maximum" : null,
+        "maximumExclusive" : null,
+        "allowedValues" : [ ]
+      },
+      "contributedIdentity" : null
+    },
+    "GreetingResponse" : {
+      "name" : "GreetingResponse",
+      "kind" : "record",
+      "fields" : [ {
+        "number" : 1,
+        "name" : "greetings",
+        "protoName" : "greetings",
+        "type" : "string",
+        "repeated" : true,
+        "presence" : "REQUIRED",
+        "nullability" : "NON_NULL",
+        "constraints" : {
+          "minItems" : null,
+          "maxItems" : null
+        },
+        "nullMarkerNumber" : null,
+        "nullMarkerProtoName" : null
+      } ],
+      "target" : null,
+      "variants" : [ ],
+      "reservedNumbers" : [ ],
+      "reservedNames" : [ ],
+      "constraints" : {
+        "minLength" : null,
+        "maxLength" : null,
+        "pattern" : null,
+        "format" : null,
+        "minimum" : null,
+        "minimumExclusive" : null,
+        "maximum" : null,
+        "maximumExclusive" : null,
+        "allowedValues" : [ ]
+      },
+      "contributedIdentity" : null
     }
   },
-  "unions" : { },
   "steps" : [ {
     "name" : "Normalize Greetings",
     "inputTypeName" : "GreetingRequests",

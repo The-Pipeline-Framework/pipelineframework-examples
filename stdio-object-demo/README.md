@@ -1,13 +1,13 @@
 # Stdio Object Pipeline Demo
 
-This is a generated TPF pipeline, not a connector harness. It maps one EOF-delimited JSON value into a typed
+This V3 pipeline maps one EOF-delimited JSON value into a typed
 `GreetingRequests` input, normalizes and composes greetings through two business steps, then renders terminal output
 through Object Publish to stdout.
 
 Build the module, then use the generated orchestrator CLI's one-shot ingest mode:
 
 ```bash
-./mvnw -pl stdio-object-demo package
+./mvnw -pl stdio-object-demo package -Dmaven.repo.local="$PWD/.m2/repository"
 echo '{"name":"Mariano"}' |
   PIPELINE_CONFIG="$PWD/stdio-object-demo/pipeline.yaml" java -jar stdio-object-demo/target/quarkus-app/quarkus-run.jar \
     --ingest-once --async-timeout-minutes 1 | jq .

@@ -1,8 +1,9 @@
-version: 2
+version: 3
 appName: stdio-object-demo
 basePackage: org.pipelineframework.stdio.demo
 transport: LOCAL
 platform: COMPUTE
+contract: { input: GreetingRequests, output: GreetingResponse }
 sources:
   stdin-input:
     kind: object
@@ -30,13 +31,13 @@ output:
 types:
   GreetingRequests:
     fields:
-      - [names, string]
+      - { name: names, repeated: string }
   NormalizedGreetings:
     fields:
-      - [names, string]
+      - { name: names, repeated: string }
   GreetingResponse:
     fields:
-      - [greetings, string]
+      - { name: greetings, repeated: string }
 steps:
   - name: Normalize Greetings
     service: org.pipelineframework.stdio.demo.service.NormalizeGreetingsService
@@ -54,5 +55,4 @@ steps:
       input: org.pipelineframework.stdio.demo.common.domain.NormalizedGreetings
       output: org.pipelineframework.stdio.demo.common.domain.GreetingResponse
     output: GreetingResponse
-    outboundMapper: org.pipelineframework.stdio.demo.mapper.GreetingResponseTerminalMapper
     terminal: true
