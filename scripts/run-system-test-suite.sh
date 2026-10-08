@@ -13,6 +13,22 @@ case "$suite" in
       -Dmaven.deploy.skip=true -Dgpg.skip=true -Dtpf.flatten.skip=true clean verify
     ;;
   restaurant-ha)
+    # Child proofs may retain their failed stack for diagnostics, but this suite
+    # shares a runner with other applications and must release its own ports.
+    export TPF_REPO_ROOT="${TPF_REPO_ROOT:-$repo_root}"
+    cleanup_restaurant_suite() {
+      local suite_status=$?
+      trap - EXIT
+      if [[ "$suite_status" != 0 ]]; then
+        docker compose -f "$restaurant_container/compose.yaml" logs --no-color --tail 100 || true
+      fi
+      if ! docker compose -f "$restaurant_container/compose.yaml" down -v --remove-orphans; then
+        echo "Restaurant suite cleanup failed; its resources may still be running." >&2
+        if [[ "$suite_status" == 0 ]]; then suite_status=1; fi
+      fi
+      exit "$suite_status"
+    }
+    trap cleanup_restaurant_suite EXIT
     # Build the existing demo image once, then reuse it for the three ordinary
     # self-hosted HA proofs. These stay local Docker/LocalStack exercises.
     export TPF_MAVEN_ARGS="${MAVEN_ARGS:-}"
