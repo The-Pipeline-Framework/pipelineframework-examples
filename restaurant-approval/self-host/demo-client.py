@@ -398,8 +398,24 @@ def result_payload(args, execution_id):
         f"{args.base_url}/tpf/control-plane/tenants/{args.tenant_id}/executions/{execution_id}/result",
         token=auth(args),
     )
-    payload = result["resultPayload"]["payload"]
-    return json.loads(payload)
+    return decode_payload(result["resultPayload"])
+
+
+def decode_payload(envelope):
+    if envelope["payloadEncoding"] != PAYLOAD_ENCODING:
+        raise ValueError(f"Unsupported result payload encoding: {envelope['payloadEncoding']}")
+    payload = json.loads(envelope["payload"])
+    if envelope["payloadTypeId"] == "java.util.Map":
+        items = payload["items"]
+        if not isinstance(items, dict):
+            raise ValueError("Transition map result must contain an items object")
+        return {key: decode_payload(value) for key, value in items.items()}
+    if envelope["payloadTypeId"] in ("java.util.List", "java.util.Set"):
+        items = payload["items"]
+        if not isinstance(items, list):
+            raise ValueError("Transition collection result must contain an items array")
+        return [decode_payload(value) for value in items]
+    return payload
 
 
 def complete_pending(args):
