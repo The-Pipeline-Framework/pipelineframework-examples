@@ -37,6 +37,9 @@ jobs:
           ./mvnw -B -Dmaven.deploy.skip=true -Dgpg.skip=true -Dtpf.flatten.skip=true
           -Dmaven.repo.local="${{ runner.temp }}/tpf-candidate-m2" clean verify
 
+      - name: Verify candidate publisher handoff
+        run: python3 scripts/test-candidate-handoff.py
+
       - name: Create source candidate build metadata
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
