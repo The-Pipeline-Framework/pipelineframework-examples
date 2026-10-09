@@ -9,6 +9,7 @@ read -r -a maven_args <<< "${MAVEN_ARGS:-}" || true
 
 case "$suite" in
   verify)
+    python3 -m unittest discover -s "$repo_root/restaurant-approval/self-host" -p 'test_*.py'
     "$repo_root/mvnw" -B "${maven_args[@]}" \
       -Dmaven.deploy.skip=true -Dgpg.skip=true -Dtpf.flatten.skip=true clean verify
     ;;

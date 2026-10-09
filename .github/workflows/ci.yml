@@ -28,5 +28,7 @@ jobs:
         run: python3 scripts/test-bom-alignment.py
       - name: Verify system-test suite cleanup
         run: python3 scripts/test-system-test-suite.py
+      - name: Verify Restaurant self-host result decoding
+        run: python3 -m unittest discover -s restaurant-approval/self-host -p 'test_*.py'
       - name: Verify examples
         run: ./mvnw clean verify -U -Dgpg.skip -Dquarkus.http.test-port=0 -Dquarkus.grpc.server.test-port=0 -Dmaven.repo.local="$GITHUB_WORKSPACE/.m2/repository"
