@@ -15,6 +15,8 @@ CREATE = ROOT / "scripts/create-candidate-build-metadata.py"
 FINALIZE = ROOT / "scripts/finalize-source-candidate.py"
 REPOSITORY = "The-Pipeline-Framework/pipelineframework-examples"
 SHA = "0123456789abcdef0123456789abcdef01234567"
+SOURCE_REPOSITORY_ID = 1378599763
+BASE_REPOSITORY_ID = 1378599762
 
 
 def build_artifact(path: pathlib.Path, event: str, pr_number: str = "42") -> dict[str, str]:
@@ -35,11 +37,7 @@ def build_artifact(path: pathlib.Path, event: str, pr_number: str = "42") -> dic
 def publication_environment(build_env: dict[str, str], event: str, associated: str | None = None) -> dict[str, str]:
     is_pr = event == "pull_request"
     if associated is None:
-        associated = json.dumps([{
-            "number": 42,
-            "head": {"sha": SHA, "repo": {"full_name": "Contributor/pipelineframework-examples"}},
-            "base": {"repo": {"full_name": REPOSITORY}},
-        }]) if is_pr else "[]"
+        associated = json.dumps([associated_pr_fixture()]) if is_pr else "[]"
     return os.environ | {
         "BUILD_RUN_ID": "1234",
         "BUILD_RUN_ATTEMPT": "2",
@@ -57,6 +55,24 @@ def publication_environment(build_env: dict[str, str], event: str, associated: s
     }
 
 
+def associated_pr_fixture(head_repo_id: int = SOURCE_REPOSITORY_ID,
+                          base_repo_id: int = BASE_REPOSITORY_ID) -> dict:
+    # workflow_run.pull_requests carries compact repo identities without full_name.
+    return {
+        "number": 42,
+        "head": {"sha": SHA, "repo": {
+            "id": head_repo_id,
+            "name": "pipelineframework-examples",
+            "url": "https://api.github.com/repos/Contributor/pipelineframework-examples",
+        }},
+        "base": {"repo": {
+            "id": base_repo_id,
+            "name": "pipelineframework-examples",
+            "url": f"https://api.github.com/repos/{REPOSITORY}",
+        }},
+    }
+
+
 def pr_fixture(*, sha: str = SHA, labels: list[str] | None = None) -> dict:
     return {
         "state": "open",
@@ -64,9 +80,9 @@ def pr_fixture(*, sha: str = SHA, labels: list[str] | None = None) -> dict:
         "head": {
             "sha": sha,
             "ref": "candidate-branch",
-            "repo": {"full_name": "Contributor/pipelineframework-examples"},
+            "repo": {"full_name": "Contributor/pipelineframework-examples", "id": SOURCE_REPOSITORY_ID},
         },
-        "base": {"repo": {"full_name": REPOSITORY}},
+        "base": {"repo": {"full_name": REPOSITORY, "id": BASE_REPOSITORY_ID}},
         "labels": [{"name": label} for label in (labels if labels is not None else ["safe-to-system-test"])],
     }
 
@@ -116,6 +132,8 @@ with tempfile.TemporaryDirectory(prefix="tpf-examples-source-handoff-") as tempo
     # Association, fork label, current head and build artifact checksum are rejection gates.
     for case, association, pr in [
         ("missing-associated-pr", "[]", pr_fixture()),
+        ("associated-source-repo-mismatch", json.dumps([associated_pr_fixture(head_repo_id=123)]), pr_fixture()),
+        ("associated-base-repo-mismatch", json.dumps([associated_pr_fixture(base_repo_id=123)]), pr_fixture()),
         ("fork-without-safe-label", None, pr_fixture(labels=[])),
         ("stale-pr-head", None, pr_fixture(sha="fedcba9876543210fedcba9876543210fedcba98")),
     ]:

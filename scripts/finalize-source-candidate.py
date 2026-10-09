@@ -95,10 +95,6 @@ def main() -> None:
         associated_base_repo = associated_base.get("repo")
         require(isinstance(associated_head_repo, dict) and isinstance(associated_base_repo, dict),
                 "workflow_run associated PR repository metadata is missing")
-        require(associated_head_repo.get("full_name", "").lower() == metadata["sourceRepository"].lower(),
-                "workflow_run associated PR source repository does not match build metadata")
-        require(associated_base_repo.get("full_name", "").lower() == REPOSITORY.lower(),
-                "workflow_run associated PR does not target the examples repository")
         require(metadata["candidateVersion"] == f"{base_version}-pr.{pr_number}.{source_sha[:12]}",
                 "PR candidate version does not match its number and source SHA")
         pr = read_json(pr_path)
@@ -115,6 +111,12 @@ def main() -> None:
         require(head.get("sha") == source_sha, "PR head changed since the candidate build")
         require(head_repo.get("full_name", "").lower() == metadata["sourceRepository"].lower(),
                 "build source repository does not match the current PR head repository")
+        require(type(head_repo.get("id")) is int and head_repo["id"] > 0
+                and associated_head_repo.get("id") == head_repo["id"],
+                "workflow_run associated PR source repository does not match the current PR")
+        require(type(base_repo.get("id")) is int and base_repo["id"] > 0
+                and associated_base_repo.get("id") == base_repo["id"],
+                "workflow_run associated PR does not target the current PR base repository")
         require(os.environ["BUILD_RUN_HEAD_BRANCH"] == head.get("ref"),
                 "workflow_run branch does not match the current PR source branch")
         if head_repo["full_name"].lower() != REPOSITORY.lower():
