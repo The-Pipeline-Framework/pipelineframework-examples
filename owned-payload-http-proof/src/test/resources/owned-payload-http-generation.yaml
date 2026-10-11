@@ -1,0 +1,34 @@
+version: 3
+appName: Payload boundaries
+basePackage: org.example
+transport: REST
+platform: COMPUTE
+contract: { input: InvoiceInput, output: ReceiptOutput }
+types:
+  InvoiceInput:
+    fields:
+      - [payload_ref, payload_ref]
+  ReceiptOutput:
+    fields:
+      - [payload_ref, payload_ref]
+sources:
+  receipts: { kind: object, provider: filesystem, binding: files }
+publish:
+  invoices: { kind: object, provider: filesystem, binding: files }
+httpPayloads:
+  receipt:
+    direction: download
+    object: receipts
+    canonicalType: ReceiptOutput
+    referenceField: payload_ref
+    contentTypes: [application/pdf]
+    authorizationScope: receipt.read
+  invoice:
+    direction: upload
+    object: invoices
+    canonicalType: InvoiceInput
+    referenceField: payload_ref
+    contentTypes: [application/pdf]
+    maxBytes: 1024
+    authorizationScope: invoice.write
+steps: []
