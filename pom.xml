@@ -116,6 +116,7 @@
         <module>graphql-block-proof/connectors</module>
         <module>graphql-block-proof</module>
         <module>local-command-proof</module>
+        <module>owned-payload-http-proof</module>
         <module>openapi-capability-proof/contracts</module>
         <module>openapi-capability-proof</module>
         <module>openapi-capability-proof/jobs</module>
