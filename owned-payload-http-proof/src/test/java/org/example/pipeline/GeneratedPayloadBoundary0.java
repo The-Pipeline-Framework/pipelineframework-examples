@@ -16,23 +16,26 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.SecurityContext;
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.IllegalArgumentException;
 import java.lang.IllegalStateException;
 import java.lang.SecurityException;
 import java.lang.String;
-import java.nio.file.Files;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.eclipse.microprofile.openapi.annotations.Operation;
-import org.jboss.resteasy.reactive.RestForm;
-import org.jboss.resteasy.reactive.multipart.FileUpload;
+import org.eclipse.microprofile.openapi.annotations.media.Content;
+import org.eclipse.microprofile.openapi.annotations.parameters.RequestBody;
 import org.pipelineframework.config.boundary.PipelineHttpPayloadBoundaryConfig;
 import org.pipelineframework.config.pipeline.PipelineYamlConfig;
 import org.pipelineframework.connector.ConnectorBindingRegistry;
 import org.pipelineframework.connector.ConnectorRuntimeContext;
+import org.pipelineframework.connector.OwnedPayloadMultipart;
 import org.pipelineframework.connector.OwnedPayloadTransfer;
 import org.pipelineframework.connector.PayloadBoundaryAuthorizer;
 import org.pipelineframework.connector.PayloadBoundaryRuntimeConfig;
+import org.pipelineframework.connector.PayloadMediaTypeException;
+import org.pipelineframework.connector.PayloadTooLargeException;
 import org.pipelineframework.repository.PayloadReference;
 
 @Path("/tpf/payloads/invoice/upload")
@@ -63,30 +66,31 @@ public class GeneratedPayloadBoundary0 {
   }
 
   @POST
-  @Consumes("multipart/form-data")
+  @Consumes("*/*")
   @Produces("application/json")
   @Operation(
       operationId = "uploadPayloadinvoice"
   )
-  public Map<String, PayloadReference> upload(@RestForm("file") FileUpload file,
-      @HeaderParam("X-Tenant-Id") String tenant, @HeaderParam("X-Scope-Id") String scope,
-      @Context SecurityContext security, @Context HttpServerResponse httpResponse) throws
-      IOException {
-    if (file == null || file.size() > BOUNDARY.maxBytes()) throw new WebApplicationException(413);
-    if (!BOUNDARY.contentTypes().contains(file.contentType())) throw new WebApplicationException(415);
+  public Map<String, PayloadReference> upload(
+      @RequestBody(content = @Content(mediaType = "multipart/form-data")) InputStream body,
+      @HeaderParam("Content-Type") String contentType, @HeaderParam("X-Tenant-Id") String tenant,
+      @HeaderParam("X-Scope-Id") String scope, @Context SecurityContext security,
+      @Context HttpServerResponse httpResponse) throws IOException {
     var target = CONFIG.publish().get(BOUNDARY.objectName());
     if (target == null) throw new IllegalStateException("payload target is unavailable");
     var cancelled = new AtomicBoolean();
     httpResponse.closeHandler(ignored -> cancelled.set(true));
-    try (var input = Files.newInputStream(file.uploadedFile())) {
-      try {
-        var reference = transfer().upload(BOUNDARY, target, principal(security), tenant, scope, file.contentType(), input, cancelled::get);
-        return Map.of(BOUNDARY.referenceField(), reference);
-      } catch (SecurityException denied) {
-        throw new ForbiddenException();
-      } catch (IllegalArgumentException invalid) {
-        throw new BadRequestException();
-      }
+    try (var input = new OwnedPayloadMultipart(body, contentType)) {
+      var reference = transfer().upload(BOUNDARY, target, principal(security), tenant, scope, input.mediaType(), input, cancelled::get);
+      return Map.of(BOUNDARY.referenceField(), reference);
+    } catch (PayloadTooLargeException oversized) {
+      throw new WebApplicationException(413);
+    } catch (PayloadMediaTypeException media) {
+      throw new WebApplicationException(415);
+    } catch (SecurityException denied) {
+      throw new ForbiddenException();
+    } catch (IllegalArgumentException invalid) {
+      throw new BadRequestException();
     }
   }
 }
