@@ -72,7 +72,7 @@ public class GeneratedPayloadBoundary0 {
       operationId = "uploadPayloadinvoice"
   )
   public Map<String, PayloadReference> upload(
-      @RequestBody(content = @Content(mediaType = "multipart/form-data")) InputStream body,
+      @RequestBody(description = "Multipart body with exactly one file part named file; send the raw multipart request body", content = @Content(mediaType = "multipart/form-data")) InputStream body,
       @HeaderParam("Content-Type") String contentType, @HeaderParam("X-Tenant-Id") String tenant,
       @HeaderParam("X-Scope-Id") String scope, @Context SecurityContext security,
       @Context HttpServerResponse httpResponse) throws IOException {
@@ -84,9 +84,9 @@ public class GeneratedPayloadBoundary0 {
       var reference = transfer().upload(BOUNDARY, target, principal(security), tenant, scope, input.mediaType(), input, cancelled::get);
       return Map.of(BOUNDARY.referenceField(), reference);
     } catch (PayloadTooLargeException oversized) {
-      throw new WebApplicationException(413);
+      throw new WebApplicationException(oversized, 413);
     } catch (PayloadMediaTypeException media) {
-      throw new WebApplicationException(415);
+      throw new WebApplicationException(media, 415);
     } catch (SecurityException denied) {
       throw new ForbiddenException();
     } catch (IllegalArgumentException invalid) {
