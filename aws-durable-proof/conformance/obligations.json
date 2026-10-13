@@ -1,0 +1,17 @@
+{
+  "authority": {
+    "documentationSha": "a1f83ed1852f1ca0e587b87b7fb905540308afa3",
+    "completionAuditSha": "37b2c48d87751710cd51326e86ffba44905948dd",
+    "sections": [2, 8, 9, 10]
+  },
+  "historicalScenarioIds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22],
+  "placements": ["FUNCTION", "COMPUTE"],
+  "additionalScenarios": [
+    "sequential-await", "concurrent-item-await", "missing-registration",
+    "gsi-lag", "more-than-100-await-records", "history-pagination",
+    "pre-registration-provider-loss", "nonterminal-provider-loss",
+    "suspended-timeout", "suspended-continuation", "retained-version-cleanup",
+    "cmk-iam-failures", "operation-budget-exhaustion", "seeded-generation-races",
+    "provider-history-loss", "release-version-pinning"
+  ]
+}

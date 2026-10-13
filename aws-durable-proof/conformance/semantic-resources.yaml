@@ -1,0 +1,223 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Disposable semantic fixtures consumed by the unmodified production AWS Durable SAM contract
+Parameters:
+  SemanticKmsKeyArn:
+    Type: String
+    AllowedPattern: 'arn:[a-z-]+:kms:[a-z0-9-]+:[0-9]{12}:key/.+'
+Resources:
+  ExecutionTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-execution'
+      StreamSpecification: {StreamViewType: NEW_AND_OLD_IMAGES}
+      SSESpecification: {SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !Ref SemanticKmsKeyArn}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: tenant_id, AttributeType: S}
+        - {AttributeName: execution_id, AttributeType: S}
+      KeySchema:
+        - {AttributeName: tenant_id, KeyType: HASH}
+        - {AttributeName: execution_id, KeyType: RANGE}
+      TimeToLiveSpecification: {AttributeName: ttl_epoch_s, Enabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      Tags: &ConformanceTags
+        - {Key: purpose, Value: aws-durable-conformance}
+
+  ExecutionKeyTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-execution-key'
+      SSESpecification: {SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !Ref SemanticKmsKeyArn}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: tenant_execution_key, AttributeType: S}
+      KeySchema:
+        - {AttributeName: tenant_execution_key, KeyType: HASH}
+      TimeToLiveSpecification: {AttributeName: ttl_epoch_s, Enabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      Tags: *ConformanceTags
+
+  ExecutionPayloadTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-execution-payload'
+      SSESpecification: {SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !Ref SemanticKmsKeyArn}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: payload_id, AttributeType: S}
+        - {AttributeName: payload_part, AttributeType: S}
+      KeySchema:
+        - {AttributeName: payload_id, KeyType: HASH}
+        - {AttributeName: payload_part, KeyType: RANGE}
+      TimeToLiveSpecification: {AttributeName: ttl_epoch_s, Enabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      Tags: *ConformanceTags
+
+  ReleaseTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-release'
+      SSESpecification: {SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !Ref SemanticKmsKeyArn}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: registry_key, AttributeType: S}
+        - {AttributeName: registry_sort, AttributeType: S}
+      KeySchema:
+        - {AttributeName: registry_key, KeyType: HASH}
+        - {AttributeName: registry_sort, KeyType: RANGE}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      Tags: *ConformanceTags
+
+  AwaitUnitTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-await-unit'
+      SSESpecification: {SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !Ref SemanticKmsKeyArn}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: tenant_id, AttributeType: S}
+        - {AttributeName: unit_id, AttributeType: S}
+      KeySchema:
+        - {AttributeName: tenant_id, KeyType: HASH}
+        - {AttributeName: unit_id, KeyType: RANGE}
+      TimeToLiveSpecification: {AttributeName: ttl_epoch_s, Enabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      Tags: *ConformanceTags
+
+  AwaitAdmissionTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-await-admission'
+      SSESpecification: {SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !Ref SemanticKmsKeyArn}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: scope_key, AttributeType: S}
+        - {AttributeName: slot, AttributeType: N}
+      KeySchema:
+        - {AttributeName: scope_key, KeyType: HASH}
+        - {AttributeName: slot, KeyType: RANGE}
+      TimeToLiveSpecification: {AttributeName: expires_at, Enabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      Tags: *ConformanceTags
+
+  AwaitInteractionKeyTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-await-interaction-key'
+      SSESpecification: {SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !Ref SemanticKmsKeyArn}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: lookup_key, AttributeType: S}
+      KeySchema:
+        - {AttributeName: lookup_key, KeyType: HASH}
+      TimeToLiveSpecification: {AttributeName: ttl_epoch_s, Enabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      Tags: *ConformanceTags
+
+  AwaitInteractionTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-await-interaction'
+      SSESpecification: {SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !Ref SemanticKmsKeyArn}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: tenant_id, AttributeType: S}
+        - {AttributeName: interaction_id, AttributeType: S}
+        - {AttributeName: query_unit_key, AttributeType: S}
+        - {AttributeName: query_unit_sort, AttributeType: S}
+        - {AttributeName: query_pending_tenant_key, AttributeType: S}
+        - {AttributeName: query_pending_assignee_key, AttributeType: S}
+        - {AttributeName: query_pending_group_key, AttributeType: S}
+        - {AttributeName: query_pending_step_key, AttributeType: S}
+        - {AttributeName: query_pending_deadline_sort, AttributeType: S}
+        - {AttributeName: query_deadline_key, AttributeType: S}
+        - {AttributeName: query_deadline_sort, AttributeType: S}
+        - {AttributeName: query_continuation_key, AttributeType: S}
+        - {AttributeName: query_continuation_due_epoch_ms, AttributeType: N}
+        - {AttributeName: query_execution_key, AttributeType: S}
+        - {AttributeName: query_execution_sort, AttributeType: S}
+      KeySchema:
+        - {AttributeName: tenant_id, KeyType: HASH}
+        - {AttributeName: interaction_id, KeyType: RANGE}
+      GlobalSecondaryIndexes:
+        - IndexName: await-interaction-by-unit
+          KeySchema:
+            - {AttributeName: query_unit_key, KeyType: HASH}
+            - {AttributeName: query_unit_sort, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+        - IndexName: await-interaction-pending-by-tenant
+          KeySchema:
+            - {AttributeName: query_pending_tenant_key, KeyType: HASH}
+            - {AttributeName: query_pending_deadline_sort, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+        - IndexName: await-interaction-pending-by-assignee
+          KeySchema:
+            - {AttributeName: query_pending_assignee_key, KeyType: HASH}
+            - {AttributeName: query_pending_deadline_sort, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+        - IndexName: await-interaction-pending-by-group
+          KeySchema:
+            - {AttributeName: query_pending_group_key, KeyType: HASH}
+            - {AttributeName: query_pending_deadline_sort, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+        - IndexName: await-interaction-pending-by-step
+          KeySchema:
+            - {AttributeName: query_pending_step_key, KeyType: HASH}
+            - {AttributeName: query_pending_deadline_sort, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+        - IndexName: await-interaction-pending-by-deadline
+          KeySchema:
+            - {AttributeName: query_deadline_key, KeyType: HASH}
+            - {AttributeName: query_deadline_sort, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+        - IndexName: await-interaction-continuation-work
+          KeySchema:
+            - {AttributeName: query_continuation_key, KeyType: HASH}
+            - {AttributeName: query_continuation_due_epoch_ms, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+        - IndexName: await-interaction-by-execution
+          KeySchema:
+            - {AttributeName: query_execution_key, KeyType: HASH}
+            - {AttributeName: query_execution_sort, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+      StreamSpecification: {StreamViewType: NEW_AND_OLD_IMAGES}
+      TimeToLiveSpecification: {AttributeName: ttl_epoch_s, Enabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      Tags: *ConformanceTags
+
+  WorkerTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-worker'
+      SSESpecification: {SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !Ref SemanticKmsKeyArn}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: registry_key, AttributeType: S}
+        - {AttributeName: registry_sort, AttributeType: S}
+      KeySchema:
+        - {AttributeName: registry_key, KeyType: HASH}
+        - {AttributeName: registry_sort, KeyType: RANGE}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      Tags: *ConformanceTags
+
+Outputs:
+  ExecutionTable: {Value: !Ref ExecutionTable}
+  ExecutionTableArn: {Value: !GetAtt ExecutionTable.Arn}
+  ExecutionKeyTable: {Value: !Ref ExecutionKeyTable}
+  ExecutionKeyTableArn: {Value: !GetAtt ExecutionKeyTable.Arn}
+  ExecutionPayloadTable: {Value: !Ref ExecutionPayloadTable}
+  ExecutionPayloadTableArn: {Value: !GetAtt ExecutionPayloadTable.Arn}
+  ReleaseTable: {Value: !Ref ReleaseTable}
+  ReleaseTableArn: {Value: !GetAtt ReleaseTable.Arn}
+  AwaitUnitTable: {Value: !Ref AwaitUnitTable}
+  AwaitUnitTableArn: {Value: !GetAtt AwaitUnitTable.Arn}
+  AwaitAdmissionTable: {Value: !Ref AwaitAdmissionTable}
+  AwaitAdmissionTableArn: {Value: !GetAtt AwaitAdmissionTable.Arn}
+  AwaitInteractionKeyTable: {Value: !Ref AwaitInteractionKeyTable}
+  AwaitInteractionKeyTableArn: {Value: !GetAtt AwaitInteractionKeyTable.Arn}
+  AwaitInteractionTable: {Value: !Ref AwaitInteractionTable}
+  AwaitInteractionTableArn: {Value: !GetAtt AwaitInteractionTable.Arn}
+  WorkerTable: {Value: !Ref WorkerTable}
+  WorkerTableArn: {Value: !GetAtt WorkerTable.Arn}
+  ExecutionStateStreamArn: {Value: !GetAtt ExecutionTable.StreamArn}
+  AwaitInteractionStreamArn: {Value: !GetAtt AwaitInteractionTable.StreamArn}

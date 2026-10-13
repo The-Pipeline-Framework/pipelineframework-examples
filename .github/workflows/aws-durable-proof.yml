@@ -1,0 +1,173 @@
+name: AWS Durable Historical Diagnostics and Production Gate
+
+on:
+  schedule:
+    - cron: '43 2 * * *'
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: Historical diagnostics or production evidence gate
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - promotion
+          - history
+      candidate_sha:
+        description: Exact runtime candidate SHA (required for production promotion)
+        required: false
+        type: string
+      examples_sha:
+        description: Exact examples producer SHA (required for production promotion)
+        required: false
+        type: string
+      production_run_id:
+        description: Trusted run containing the production artifacts and real-AWS evidence bundle
+        required: false
+        type: string
+      compiler_sha:
+        description: Exact compiler source SHA from the production build
+        required: false
+        type: string
+      bom_sha:
+        description: Exact BOM source SHA from the production build
+        required: false
+        type: string
+      production_bundle:
+        description: Artifact bundle name from that trusted production run
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-durable-proof
+  cancel-in-progress: false
+
+jobs:
+  production-promotion:
+    if: github.event_name == 'workflow_dispatch' && inputs.lane == 'promotion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: aws-durable-proof
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify deployment-free promotion gate tests
+        run: ./mvnw -pl aws-durable-proof/production-tests -am verify -Dmaven.repo.local="$PWD/.m2/repository" --no-transfer-progress
+      - name: Require exact production candidate evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          EXAMPLES_SHA: ${{ inputs.examples_sha }}
+          PRODUCTION_RUN_ID: ${{ inputs.production_run_id }}
+          PRODUCTION_BUNDLE: ${{ inputs.production_bundle }}
+          COMPILER_SHA: ${{ inputs.compiler_sha }}
+          BOM_SHA: ${{ inputs.bom_sha }}
+        run: |
+          [[ "$CANDIDATE_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "Exact runtime candidate SHA required" >&2; exit 2; }
+          [[ "$PRODUCTION_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Trusted production run ID required" >&2; exit 2; }
+          [[ "$EXAMPLES_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "Exact examples producer SHA required" >&2; exit 2; }
+          test -n "$PRODUCTION_BUNDLE"
+          [[ "$COMPILER_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "Exact compiler source SHA required" >&2; exit 2; }
+          [[ "$BOM_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "Exact BOM source SHA required" >&2; exit 2; }
+      - name: Validate production run provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          EXAMPLES_SHA: ${{ inputs.examples_sha }}
+          PRODUCTION_RUN_ID: ${{ inputs.production_run_id }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PRODUCTION_RUN_ID" > "$RUNNER_TEMP/production-run.json"
+          python3 - "$RUNNER_TEMP/production-run.json" <<'PY'
+          import json, os, sys
+          run = json.load(open(sys.argv[1]))
+          assert run["status"] == "completed" and run["conclusion"] == "success", "Production evidence run did not succeed"
+          assert run["head_sha"] == os.environ["EXAMPLES_SHA"], "Run is not the exact examples producer"
+          assert run["head_repository"]["full_name"] == os.environ["GITHUB_REPOSITORY"], "Evidence came from another repository"
+          assert run["path"] == ".github/workflows/aws-durable-proof.yml", "Untrusted producer workflow"
+          assert run["event"] == "workflow_dispatch", "Production producer must use explicit dispatch"
+          PY
+      - name: Download exact production artifacts and raw run evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_RUN_ID: ${{ inputs.production_run_id }}
+          PRODUCTION_BUNDLE: ${{ inputs.production_bundle }}
+        run: |
+          gh run download "$PRODUCTION_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "$PRODUCTION_BUNDLE" --dir "$RUNNER_TEMP/production-conformance"
+      - name: Reject proof substitutes and incomplete production evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          EXAMPLES_SHA: ${{ inputs.examples_sha }}
+          COMPILER_SHA: ${{ inputs.compiler_sha }}
+          BOM_SHA: ${{ inputs.bom_sha }}
+        run: |
+          bundle="$RUNNER_TEMP/production-conformance"
+          python3 aws-durable-proof/scripts/verify-production-conformance.py \
+            --action-archive "$bundle/function.zip" \
+            --coordinator-archive "$bundle/coordinator.jar" \
+            --deployment-archive "$bundle/deployment.jar" \
+            --template "$bundle/aws-durable-queue-async.yaml" \
+            --operation-http-archive "$bundle/operation-http.zip" \
+            --item-archive "$bundle/item-function.zip" \
+            --evidence "$bundle/production-report.json" \
+            --runtime-sha "$CANDIDATE_SHA" \
+            --compiler-sha "$COMPILER_SHA" \
+            --bom-sha "$BOM_SHA" \
+            --examples-sha "$EXAMPLES_SHA"
+  deployed-proof:
+    if: github.event_name != 'workflow_dispatch' || inputs.lane != 'promotion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: aws-durable-proof
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-path: ${{ github.workspace }}/.m2/repository
+      - uses: aws-actions/setup-sam@f84ec7d548307efafe33230528756de3c5841a17 # v2
+      - name: Require protected AWS role configuration
+        env:
+          ROLE_ARN: ${{ vars.AWS_DURABLE_PROOF_ROLE_ARN }}
+        run: test -n "$ROLE_ARN"
+      - name: Configure short-lived AWS credentials
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+        with:
+          role-to-assume: ${{ vars.AWS_DURABLE_PROOF_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_DURABLE_PROOF_REGION || 'us-east-2' }}
+      - name: Run disposable historical diagnostics (not production promotion)
+        env:
+          PROOF_REGION: ${{ vars.AWS_DURABLE_PROOF_REGION || 'us-east-2' }}
+          PROOF_LANE: ${{ github.event.inputs.lane || 'full' }}
+          PROOF_STACK: tpf-durable-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          lane_args=()
+          case "$PROOF_LANE" in
+            full) ;;
+            history) lane_args+=(--history-only) ;;
+            *) echo "Unsupported proof lane: $PROOF_LANE" >&2; exit 2 ;;
+          esac
+          ./aws-durable-proof/scripts/run-deployed-proof.sh \
+            --region "$PROOF_REGION" \
+            --stack-name "$PROOF_STACK" \
+            "${lane_args[@]}"
+      - name: Upload proof evidence
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: aws-durable-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: aws-durable-proof/proof-report.json
+          if-no-files-found: warn
+          retention-days: 30

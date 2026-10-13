@@ -1,0 +1,50 @@
+version: 2
+appName: aws-durable-conformance
+basePackage: org.pipelineframework.awsconformance
+transport: REST
+platform: FUNCTION
+types:
+  Approval:
+    fields:
+      - [1, request, string]
+steps:
+  - name: First Approval
+    service: org.pipelineframework.awsconformance.FirstApprovalService
+    cardinality: ONE_TO_ONE
+    input: Approval
+    output: Approval
+    java: {input: org.pipelineframework.awsconformance.common.domain.Approval, output: org.pipelineframework.awsconformance.common.domain.Approval}
+    inboundMapper: org.pipelineframework.awsconformance.ApprovalMapper
+    outboundMapper: org.pipelineframework.awsconformance.ApprovalMapper
+    await:
+      operationOutput: {type: Approval, java: org.pipelineframework.awsconformance.common.domain.Approval}
+      timeout: PT5M
+      correlation: {strategy: interactionId}
+      transport: {type: interaction-api}
+  - name: Second Approval
+    service: org.pipelineframework.awsconformance.SecondApprovalService
+    cardinality: ONE_TO_ONE
+    input: Approval
+    output: Approval
+    java: {input: org.pipelineframework.awsconformance.common.domain.Approval, output: org.pipelineframework.awsconformance.common.domain.Approval}
+    inboundMapper: org.pipelineframework.awsconformance.ApprovalMapper
+    outboundMapper: org.pipelineframework.awsconformance.ApprovalMapper
+    await:
+      operationOutput: {type: Approval, java: org.pipelineframework.awsconformance.common.domain.Approval}
+      timeout: PT5M
+      correlation: {strategy: interactionId}
+      transport: {type: interaction-api}
+
+  - name: Item Approvals
+    service: org.pipelineframework.awsconformance.items.ExpandApprovalsService
+    cardinality: ONE_TO_MANY
+    input: Approval
+    output: Approval
+    java: {input: org.pipelineframework.awsconformance.items.common.domain.Approval, output: org.pipelineframework.awsconformance.items.common.domain.Approval}
+    inboundMapper: org.pipelineframework.awsconformance.items.ItemApprovalMapper
+    outboundMapper: org.pipelineframework.awsconformance.items.ItemApprovalMapper
+    await:
+      operationOutput: {type: Approval, java: org.pipelineframework.awsconformance.items.common.domain.Approval}
+      timeout: PT5M
+      correlation: {strategy: interactionId}
+      transport: {type: interaction-api}

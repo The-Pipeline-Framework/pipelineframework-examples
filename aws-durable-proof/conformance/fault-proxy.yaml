@@ -1,0 +1,42 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: External Lambda transport fault decorator; production target artifacts remain separate
+Parameters:
+  TargetActionVersionArn:
+    Type: String
+    AllowedPattern: 'arn:[a-z-]+:lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9-_]+:[0-9]+'
+  ProxyArtifactUri: {Type: String}
+Resources:
+  FaultTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: fault_id, AttributeType: S}]
+      KeySchema: [{AttributeName: fault_id, KeyType: HASH}]
+      SSESpecification: {SSEEnabled: true}
+  Proxy:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: java21
+      Architectures: [arm64]
+      CodeUri: !Ref ProxyArtifactUri
+      Handler: org.pipelineframework.awsconformance.faults.ActionTransportFaultProxy::handleRequest
+      Timeout: 180
+      MemorySize: 512
+      AutoPublishAlias: fault-fixture
+      Environment:
+        Variables:
+          TPF_CONFORMANCE_TARGET_ACTION_VERSION: !Ref TargetActionVersionArn
+          TPF_CONFORMANCE_FAULT_TABLE: !Ref FaultTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !Ref TargetActionVersionArn
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:PutItem]
+              Resource: !GetAtt FaultTable.Arn
+Outputs:
+  FaultTable: {Value: !Ref FaultTable}
+  ProxyArn: {Value: !GetAtt Proxy.Arn}
+  TargetActionVersionArn: {Value: !Ref TargetActionVersionArn}

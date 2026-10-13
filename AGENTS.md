@@ -13,12 +13,16 @@ This repository owns learning examples and architectural proofs for The Pipeline
 executable compatibility surfaces, not framework implementations and not libraries for other repositories to
 depend upon.
 
+`aws-durable-proof`, `spring-smoke-tests` and `spring-blocking-smoke-tests` are application compatibility
+proofs in this canonical reactor. They consume released runtime/adapter artifacts; runtime-owned provider/unit
+tests remain in `pipelineframework-runtime`. Ordinary verification executes no real-AWS deployment.
+
 Keep every example dependent on released TPF compiler, runtime, contract, connector, Block, and Expansion
 artifacts. Do not restore source dependencies on the framework monorepo. Application-specific support modules
 may live beside the example that owns them, but must not masquerade as public ecosystem artifacts.
 
 Real applications, reference implementations, ecosystem connectors, packaged Blocks, Expansion distributions,
-and runtime-owned Spring smoke tests do not belong here.
+and runtime implementation tests do not belong here.
 
 ## Cross-repository system tests
 

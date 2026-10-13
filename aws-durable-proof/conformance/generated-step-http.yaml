@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Disposable HTTP transport for the compiler-generated conformance operations.
+Parameters:
+  OperationArtifactUri: {Type: String}
+  ConformanceOwner: {Type: String, MinLength: 1}
+Resources:
+  OperationLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-operations'
+      RetentionInDays: 1
+  OperationFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: OperationLogs
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-operations'
+      CodeUri: !Ref OperationArtifactUri
+      Handler: io.quarkus.amazon.lambda.runtime.QuarkusStreamHandler::handleRequest
+      Runtime: java21
+      Architectures: [arm64]
+      MemorySize: 512
+      Timeout: 15
+      ReservedConcurrentExecutions: 2
+      Tags:
+        tpf-conformance-disposable: 'true'
+        tpf-conformance-owner: !Ref ConformanceOwner
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowMethods: [POST]
+          AllowHeaders: [content-type]
+      Policies: [AWSLambdaBasicExecutionRole]
+Outputs:
+  OperationHttpUrl: {Value: !GetAtt OperationFunctionUrl.FunctionUrl}
+  OperationFunctionArn: {Value: !GetAtt OperationFunction.Arn}
