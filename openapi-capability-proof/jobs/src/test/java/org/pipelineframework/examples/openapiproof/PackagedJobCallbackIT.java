@@ -248,21 +248,21 @@ class PackagedJobCallbackIT {
         assertEquals(expected, state.required("status").textValue(), state.toString());
     }
 
-    private int complete(URI callback, String body) throws Exception {
+    private HttpResponse<String> complete(URI callback, String body) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(SIGNING_KEY.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
         return client.send(HttpRequest.newBuilder(callback).timeout(Duration.ofSeconds(10))
             .header("Content-Type", "application/json").header("X-Callback-Signature",
                 HexFormat.of().formatHex(mac.doFinal(body.getBytes(StandardCharsets.UTF_8))))
-            .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.discarding()).statusCode();
+            .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
     }
 
     private void assertCallbackAccepted(URI callback, String body) throws Exception {
-        int status = complete(callback, body);
-        if (status != 202) {
+        HttpResponse<String> response = complete(callback, body);
+        if (response.statusCode() != 202) {
             Path log = module.resolve("target/packaged-callback-" + starts + ".log");
             List<String> lines = Files.readAllLines(log);
-            assertEquals(202, status, "Packaged callback log:\n" + String.join("\n",
+            assertEquals(202, response.statusCode(), response.body() + "\nPackaged callback log:\n" + String.join("\n",
                 lines.subList(Math.max(0, lines.size() - 200), lines.size())));
         }
     }

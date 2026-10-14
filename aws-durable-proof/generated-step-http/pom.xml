@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+ <modelVersion>4.0.0</modelVersion>
+ <parent><groupId>org.pipelineframework</groupId><artifactId>pipelineframework-aws-durable-proof-parent</artifactId><version>26.9.4-SNAPSHOT</version><relativePath>../pom.xml</relativePath></parent>
+ <artifactId>pipelineframework-aws-durable-conformance-step-http</artifactId>
+ <name>Generated conformance operations over the Quarkus HTTP Lambda bridge</name>
+ <dependencies>
+  <dependency><groupId>org.pipelineframework</groupId><artifactId>pipelineframework</artifactId><version>${pipelineframework.runtime.version}</version></dependency>
+  <dependency><groupId>org.pipelineframework</groupId><artifactId>pipelineframework-aws-durable-conformance-common</artifactId><version>${project.version}</version></dependency>
+  <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-amazon-lambda-http</artifactId></dependency>
+  <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-junit</artifactId><scope>test</scope></dependency>
+  <dependency><groupId>io.rest-assured</groupId><artifactId>rest-assured</artifactId><scope>test</scope></dependency>
+ </dependencies>
+ <build><plugins><plugin><artifactId>maven-compiler-plugin</artifactId>
+ <configuration><useIncrementalCompilation>false</useIncrementalCompilation><annotationProcessorPaths combine.self="override"><path><groupId>org.pipelineframework</groupId><artifactId>pipelineframework-compiler</artifactId><version>${pipelineframework.compiler.version}</version></path></annotationProcessorPaths>
+ <compilerArgs><arg>-Apipeline.config=${project.basedir}/pipeline.yaml</arg><arg>-Apipeline.module=${project.artifactId}</arg><arg>-Apipeline.moduleDir=${project.basedir}</arg><arg>-Apipeline.generatedSourcesDir=${project.build.directory}/generated-sources/pipeline</arg><arg>-Apipeline.transport=REST</arg><arg>-Apipeline.rest.naming.strategy=LEGACY</arg><arg>-Apipeline.function.httpBridge=true</arg></compilerArgs></configuration>
+ <executions><execution><id>compile-generated-operation-clients</id><phase>process-classes</phase><goals><goal>compile</goal></goals><configuration><proc>none</proc><compileSourceRoots><compileSourceRoot>${project.build.directory}/generated-sources/pipeline/orchestrator-client</compileSourceRoot></compileSourceRoots></configuration></execution><execution><id>compile-generated-step-servers</id><phase>process-classes</phase><goals><goal>compile</goal></goals><configuration><proc>none</proc><compileSourceRoots><compileSourceRoot>${project.build.directory}/generated-sources/pipeline/rest-server</compileSourceRoot></compileSourceRoots></configuration></execution></executions></plugin><plugin><groupId>io.quarkus</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build>
+</project>
