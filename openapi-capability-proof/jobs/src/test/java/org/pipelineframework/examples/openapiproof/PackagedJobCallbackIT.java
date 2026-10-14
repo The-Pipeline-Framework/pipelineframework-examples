@@ -137,7 +137,7 @@ class PackagedJobCallbackIT {
         start();
         assertEquals("WAITING_EXTERNAL", status(id).required("status").textValue());
         String completion = PipelineJson.mapper().writeValueAsString(Map.of("jobId", jobId, "status", "completed"));
-        assertEquals(202, complete(dispatch.callback(), completion));
+        assertCallbackAccepted(dispatch.callback(), completion);
         awaitStatus(id, "SUCCEEDED");
         JsonNode result = json(request("GET", "/executions/" + id + "/result", ""), 200);
         JsonNode value = PipelineJson.mapper().readTree(result.required("resultPayload").required("payload").textValue());
@@ -145,7 +145,7 @@ class PackagedJobCallbackIT {
         assertEquals("original-value", value.required("value").textValue());
         assertEquals("completed", value.required("status").textValue());
         long version = status(id).required("version").longValue();
-        assertEquals(202, complete(dispatch.callback(), completion));
+        assertCallbackAccepted(dispatch.callback(), completion);
         assertEquals(version, status(id).required("version").longValue());
         JsonNode replay = json(request("POST", "/executions", submission), 200);
         assertTrue(replay.required("duplicate").booleanValue());
@@ -255,6 +255,16 @@ class PackagedJobCallbackIT {
             .header("Content-Type", "application/json").header("X-Callback-Signature",
                 HexFormat.of().formatHex(mac.doFinal(body.getBytes(StandardCharsets.UTF_8))))
             .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.discarding()).statusCode();
+    }
+
+    private void assertCallbackAccepted(URI callback, String body) throws Exception {
+        int status = complete(callback, body);
+        if (status != 202) {
+            Path log = module.resolve("target/packaged-callback-" + starts + ".log");
+            List<String> lines = Files.readAllLines(log);
+            assertEquals(202, status, "Packaged callback log:\n" + String.join("\n",
+                lines.subList(Math.max(0, lines.size() - 200), lines.size())));
+        }
     }
 
     private void assertRuntimeIsOffline() throws Exception {
