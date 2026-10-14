@@ -1,0 +1,23 @@
+version: 2
+appName: aws-durable-compute-http-control
+basePackage: org.pipelineframework.awsconformance.compute
+transport: REST
+platform: COMPUTE
+types:
+  Approval:
+    fields:
+      - [1, request, string]
+steps:
+  - name: Compute Items
+    service: org.pipelineframework.awsconformance.compute.ExpandComputeItemsService
+    cardinality: ONE_TO_MANY
+    input: Approval
+    output: Approval
+    java: {input: org.pipelineframework.awsconformance.items.common.domain.Approval, output: org.pipelineframework.awsconformance.items.common.domain.Approval}
+    inboundMapper: org.pipelineframework.awsconformance.items.ItemApprovalMapper
+    outboundMapper: org.pipelineframework.awsconformance.items.ItemApprovalMapper
+    await:
+      operationOutput: {type: Approval, java: org.pipelineframework.awsconformance.items.common.domain.Approval}
+      timeout: PT5M
+      correlation: {strategy: interactionId}
+      transport: {type: interaction-api}

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.pipelineframework</groupId>
+        <artifactId>pipelineframework-aws-durable-proof-parent</artifactId>
+        <version>26.9.4-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>pipelineframework-aws-durable-conformance-fixture</artifactId>
+    <name>Generated AWS Durable production conformance fixture</name>
+    <properties>
+        <conformance.pipeline.config>${project.basedir}/pipeline.yaml</conformance.pipeline.config>
+        <conformance.operation.http.url>UNCONFIGURED</conformance.operation.http.url>
+    </properties>
+    <dependencies>
+        <dependency><groupId>org.pipelineframework</groupId><artifactId>pipelineframework-aws-durable-conformance-fault-proxy</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.pipelineframework</groupId><artifactId>pipelineframework-aws-durable-conformance-common</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.pipelineframework</groupId><artifactId>pipelineframework</artifactId><version>${pipelineframework.runtime.version}</version></dependency>
+        <dependency><groupId>org.pipelineframework</groupId><artifactId>pipelineframework-aws-durable-coordination-host</artifactId><version>${pipelineframework.runtime.version}</version></dependency>
+        <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-amazon-lambda</artifactId></dependency>
+        <dependency><groupId>io.quarkiverse.amazonservices</groupId><artifactId>quarkus-amazon-lambda</artifactId></dependency>
+        <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-rest-jackson</artifactId></dependency>
+        <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-rest-client-jackson</artifactId></dependency>
+        <dependency><groupId>info.picocli</groupId><artifactId>picocli</artifactId><version>4.7.7</version></dependency>
+        <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-arc</artifactId></dependency>
+        <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-jackson</artifactId></dependency>
+        <dependency><groupId>com.fasterxml.jackson.datatype</groupId><artifactId>jackson-datatype-jdk8</artifactId></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.assertj</groupId><artifactId>assertj-core</artifactId><scope>test</scope></dependency>
+    </dependencies>
+    <build>
+        <resources><resource><directory>src/main/resources</directory><filtering>true</filtering></resource></resources>
+        <plugins>
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!-- Each generated role adds classes to the same artifact. Do not let a
+                         later execution remove another role's compiled output. -->
+                    <useIncrementalCompilation>false</useIncrementalCompilation>
+                    <annotationProcessorPaths combine.self="override">
+                        <path><groupId>org.pipelineframework</groupId><artifactId>pipelineframework-compiler</artifactId><version>${pipelineframework.compiler.version}</version></path>
+                    </annotationProcessorPaths>
+                    <compilerArgs>
+                        <arg>-Apipeline.config=${conformance.pipeline.config}</arg>
+                        <arg>-Apipeline.module=${project.artifactId}</arg>
+                        <arg>-Apipeline.moduleDir=${project.basedir}</arg>
+                        <arg>-Apipeline.generatedSourcesDir=${project.build.directory}/generated-sources/pipeline</arg>
+                        <arg>-Apipeline.transport=REST</arg>
+                        <arg>-Apipeline.rest.naming.strategy=LEGACY</arg>
+
+                        <arg>-Apipeline.coordination.host=AWS_DURABLE</arg>
+                    </compilerArgs>
+                </configuration>
+                <executions>
+                    <execution><id>compile-generated-clients</id><phase>process-classes</phase><goals><goal>compile</goal></goals>
+                        <configuration><proc>none</proc><compileSourceRoots><compileSourceRoot>${project.build.directory}/generated-sources/pipeline/orchestrator-client</compileSourceRoot></compileSourceRoots></configuration>
+                    </execution>
+                    <execution><id>compile-generated-pipeline-server</id><phase>process-classes</phase><goals><goal>compile</goal></goals>
+                        <configuration><proc>none</proc><compileSourceRoots><compileSourceRoot>${project.build.directory}/generated-sources/pipeline/pipeline-server</compileSourceRoot></compileSourceRoots></configuration>
+                    </execution>
+                    <execution><id>compile-generated-step-servers</id><phase>process-classes</phase><goals><goal>compile</goal></goals>
+                        <configuration><proc>none</proc><compileSourceRoots><compileSourceRoot>${project.build.directory}/generated-sources/pipeline/rest-server</compileSourceRoot></compileSourceRoots></configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin><groupId>io.quarkus</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin>
+        </plugins>
+    </build>
+</project>
