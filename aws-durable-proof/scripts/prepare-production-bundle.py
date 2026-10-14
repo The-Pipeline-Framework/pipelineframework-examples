@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Assemble and inspect the actual production packages without contacting AWS."""
 import argparse
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -15,6 +16,19 @@ SPEC.loader.exec_module(GATE)
 FAULT_SPEC = importlib.util.spec_from_file_location("transition_fixture", Path(__file__).with_name("transition-fault-fixture.py"))
 TRANSITION_FIXTURE = importlib.util.module_from_spec(FAULT_SPEC)
 FAULT_SPEC.loader.exec_module(TRANSITION_FIXTURE)
+WORK_SPEC = importlib.util.spec_from_file_location("work_fixture", Path(__file__).with_name("production-work-faults.py"))
+WORK_FIXTURE = importlib.util.module_from_spec(WORK_SPEC)
+WORK_SPEC.loader.exec_module(WORK_FIXTURE)
+
+
+def combined_delivery_template(source):
+    """Compose the two exact fixture transformations; retain original production provenance."""
+    transition = TRANSITION_FIXTURE.derived_template(source)
+    combined = WORK_FIXTURE.derived_template(transition)
+    old = b'"productionTemplateSha256":"' + hashlib.sha256(transition).hexdigest().encode() + b'"'
+    new = b'"productionTemplateSha256":"' + hashlib.sha256(source).hexdigest().encode() + b'"'
+    GATE.require(combined.count(old) == 1, "combined work fixture provenance is missing or ambiguous")
+    return combined.replace(old, new, 1)
 
 
 def prepare(action, coordinator, deployment, operation_http, item, output, revisions, source_tree_clean, operation_http_url):
@@ -48,6 +62,13 @@ def prepare(action, coordinator, deployment, operation_http, item, output, revis
     fixture_template = TRANSITION_FIXTURE.derived_template(source_template)
     manifest["transitionFaultFixture"] = TRANSITION_FIXTURE.verify(output / "function.zip", source_template, fixture_template)
     (output / "conformance-transition-fault.yaml").write_bytes(fixture_template)
+    work_template = WORK_FIXTURE.derived_template(source_template)
+    manifest["workFaultFixture"] = WORK_FIXTURE.verify_fixture(output / "function.zip", source_template, work_template)
+    WORK_FIXTURE.verify_fixture(output / "item-function.zip", source_template, work_template)
+    (output / "conformance-work-fault.yaml").write_bytes(work_template)
+    combined = combined_delivery_template(source_template)
+    (output / "conformance-worker-faults.yaml").write_bytes(combined)
+    manifest["workerFaultTemplateSha256"] = hashlib.sha256(combined).hexdigest()
     (output / "build-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest
 
