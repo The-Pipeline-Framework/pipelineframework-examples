@@ -166,7 +166,7 @@ abstract class RestaurantApprovalSplitWorkerITSupport {
             Process process = null;
             try {
                 process = startAppProcess(name, port, extraProperties);
-                awaitHttp(name, port, "/q/health/live");
+                awaitHttp(name, process, port, "/q/health/live");
                 return port;
             } catch (Exception e) {
                 last = e;
@@ -278,7 +278,7 @@ abstract class RestaurantApprovalSplitWorkerITSupport {
         return process;
     }
 
-    private static void awaitHttp(String name, int port, String path) throws Exception {
+    private static void awaitHttp(String name, Process process, int port, String path) throws Exception {
         HttpClient client = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
             .build();
@@ -286,6 +286,9 @@ abstract class RestaurantApprovalSplitWorkerITSupport {
         URI uri = URI.create("http://localhost:" + port + path);
         Exception last = null;
         while (Instant.now().isBefore(deadline)) {
+            if (!process.isAlive()) {
+                throw startupFailure(name, "Process exited with code " + process.exitValue() + " before " + uri, last);
+            }
             try {
                 HttpResponse<Void> response = client.send(
                     HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(2)).GET().build(),
@@ -302,7 +305,18 @@ abstract class RestaurantApprovalSplitWorkerITSupport {
             }
             Thread.sleep(250L);
         }
-        throw new AssertionError("Timed out waiting for " + name + " at " + uri, last);
+        throw startupFailure(name, "Timed out waiting for " + name + " at " + uri, last);
+    }
+
+    private static AssertionError startupFailure(String name, String message, Exception cause) {
+        Path log = Path.of(System.getProperty("user.dir"), "target", "transition-worker-split-it", name + ".log");
+        try {
+            String output = Files.readString(log);
+            return new AssertionError(message + "\nChild process log: " + log + "\n"
+                + output.substring(Math.max(0, output.length() - 16_384)), cause);
+        } catch (IOException unavailable) {
+            return new AssertionError(message + "\nCannot read child process log " + log + ": " + unavailable, cause);
+        }
     }
 
     private static int randomPortCandidate() {
