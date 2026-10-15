@@ -16,8 +16,11 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
@@ -310,10 +313,15 @@ abstract class RestaurantApprovalSplitWorkerITSupport {
 
     private static AssertionError startupFailure(String name, String message, Exception cause) {
         Path log = Path.of(System.getProperty("user.dir"), "target", "transition-worker-split-it", name + ".log");
-        try {
-            String output = Files.readString(log);
+        try (var channel = Files.newByteChannel(log, StandardOpenOption.READ)) {
+            ByteBuffer tail = ByteBuffer.allocate((int) Math.min(channel.size(), 16_384));
+            channel.position(Math.max(0, channel.size() - tail.capacity()));
+            while (tail.hasRemaining() && channel.read(tail) > 0) {
+                // Stop at the bounded suffix even if the child is still appending.
+            }
+            String output = new String(tail.array(), 0, tail.position(), StandardCharsets.UTF_8);
             return new AssertionError(message + "\nChild process log: " + log + "\n"
-                + output.substring(Math.max(0, output.length() - 16_384)), cause);
+                + output, cause);
         } catch (IOException unavailable) {
             return new AssertionError(message + "\nCannot read child process log " + log + ": " + unavailable, cause);
         }
