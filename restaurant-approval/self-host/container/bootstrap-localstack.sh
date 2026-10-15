@@ -125,6 +125,15 @@ create_table_if_missing tpf_await_interaction_key \
   --key-schema AttributeName=lookup_key,KeyType=HASH \
   --billing-mode PAY_PER_REQUEST
 
+create_table_if_missing tpf_await_completion_lifecycle \
+  --attribute-definitions \
+    AttributeName=pk,AttributeType=S \
+    AttributeName=sk,AttributeType=S \
+  --key-schema \
+    AttributeName=pk,KeyType=HASH \
+    AttributeName=sk,KeyType=RANGE \
+  --billing-mode PAY_PER_REQUEST
+
 create_table_if_missing tpf_release_registry \
   --attribute-definitions \
     AttributeName=registry_key,AttributeType=S \
