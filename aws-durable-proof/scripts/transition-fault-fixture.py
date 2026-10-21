@@ -12,7 +12,7 @@ WRAPPER = 'org/pipelineframework/awsconformance/faults/TransitionDeliveryFaultHa
 def transition_fault_environment(text):
     """Change only the production transition worker's recognized environment form."""
     marker = '  TransitionWorkerFunction:\n'
-    if len(re.findall(r'(?m)^  TransitionWorkerFunction:(?=[ \t]|$)', text)) != 1 or text.count(marker) != 1:
+    if len(re.findall(r'''(?m)^  (?:TransitionWorkerFunction|'TransitionWorkerFunction'|"TransitionWorkerFunction"):(?=[ \t]|$)''', text)) != 1 or text.count(marker) != 1:
         raise ValueError('Unique production TransitionWorkerFunction required')
     start = text.index(marker) + len(marker)
     following = re.search(r'(?m)^(?:  [A-Za-z][A-Za-z0-9]*:|Outputs:)', text[start:])
@@ -20,14 +20,16 @@ def transition_fault_environment(text):
         raise ValueError('Production transition resource boundary missing')
     end = start + following.start()
     body = text[start:end]
-    properties = list(re.finditer(r'(?m)^    Properties:(?=[ \t]|$)', body))
+    properties = list(re.finditer(r'''(?m)^    (?:Properties|'Properties'|"Properties"):(?=[ \t]|$)''', body))
     if len(properties) != 1 or not body.startswith('    Properties:\n', properties[0].start()):
         raise ValueError('Unique transition Properties mapping required')
     properties_start = properties[0].end() + 1
     following_property = re.search(r'(?m)^    \S', body[properties_start:])
     properties_end = properties_start + following_property.start() if following_property else len(body)
     environment_header = '      Environment:\n'
-    if (body.count(environment_header) != 1
+    if (len(re.findall(r'''(?m)^      (?:Environment|'Environment'|"Environment"):(?=[ \t]|$)''', body)) != 1
+            or body.count(environment_header) != 1
+            or len(re.findall(r'''(?m)^        (?:Variables|'Variables'|"Variables"):(?=[ \t]|$)''', body)) != 1
             or not properties_start <= body.index(environment_header) < properties_end):
         raise ValueError('Transition environment required inside Properties')
     legacy = 'Variables: {<<: *ActionEnvironment, QUARKUS_LAMBDA_HANDLER: !Ref TransitionWorkerHandler}'

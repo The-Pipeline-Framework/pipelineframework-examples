@@ -106,11 +106,20 @@ class LiteralTransitionFaultFixtureTest(unittest.TestCase):
 
     def test_inline_duplicate_transition_resource_is_denied(self):
         for source in [self.LEGACY, self.LITERAL]:
-            source = source.replace(b'Outputs:', b'  TransitionWorkerFunction: {Type: AWS::Lambda::Function}\nOutputs:')
-            with self.subTest(source=source), self.assertRaises(ValueError): FIXTURE.derived_template(source)
+            for key in [b'TransitionWorkerFunction', b"'TransitionWorkerFunction'", b'"TransitionWorkerFunction"']:
+                invalid = source.replace(b'Outputs:', b'  ' + key + b': {Type: AWS::Lambda::Function}\nOutputs:')
+                with self.subTest(source=invalid), self.assertRaises(ValueError): FIXTURE.derived_template(invalid)
 
     def test_environment_requires_unique_properties_mapping(self):
         for source in [self.LEGACY, self.LITERAL]:
             for invalid in [source.replace(b'    Properties:\n      Environment:', b'    Metadata:\n      Environment:'),
-                            source.replace(b'    Properties:\n      Environment:', b'    Properties: {}\n    Properties:\n      Environment:')]:
+                            source.replace(b'    Properties:\n      Environment:', b'    Properties: {}\n    Properties:\n      Environment:'),
+                            source.replace(b'    Properties:\n      Environment:', b"    'Properties': {}\n    Properties:\n      Environment:")]:
                 with self.subTest(source=invalid), self.assertRaises(ValueError): FIXTURE.derived_template(invalid)
+
+    def test_inline_or_quoted_environment_and_variables_duplicates_are_denied(self):
+        for source in [self.LEGACY, self.LITERAL]:
+            for indent, key in [(b'      ', b'Environment'), (b'        ', b'Variables')]:
+                for spelling in [key, b"'" + key + b"'", b'"' + key + b'"']:
+                    invalid = source.replace(indent + key + b':', indent + spelling + b': {}\n' + indent + key + b':')
+                    with self.subTest(source=invalid), self.assertRaises(ValueError): FIXTURE.derived_template(invalid)
