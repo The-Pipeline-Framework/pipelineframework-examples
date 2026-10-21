@@ -103,3 +103,14 @@ class LiteralTransitionFaultFixtureTest(unittest.TestCase):
     def test_double_quoted_literal_handler_is_the_same_reference(self):
         source = self.LITERAL.replace(b"!Ref 'TransitionWorkerHandler'", b'!Ref "TransitionWorkerHandler"')
         self.assertIn(b'TPF_CONFORMANCE_TRANSITION_FAULT_TABLE:', FIXTURE.derived_template(source))
+
+    def test_inline_duplicate_transition_resource_is_denied(self):
+        for source in [self.LEGACY, self.LITERAL]:
+            source = source.replace(b'Outputs:', b'  TransitionWorkerFunction: {Type: AWS::Lambda::Function}\nOutputs:')
+            with self.subTest(source=source), self.assertRaises(ValueError): FIXTURE.derived_template(source)
+
+    def test_environment_requires_unique_properties_mapping(self):
+        for source in [self.LEGACY, self.LITERAL]:
+            for invalid in [source.replace(b'    Properties:\n      Environment:', b'    Metadata:\n      Environment:'),
+                            source.replace(b'    Properties:\n      Environment:', b'    Properties: {}\n    Properties:\n      Environment:')]:
+                with self.subTest(source=invalid), self.assertRaises(ValueError): FIXTURE.derived_template(invalid)

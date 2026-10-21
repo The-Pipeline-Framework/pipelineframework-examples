@@ -12,7 +12,7 @@ WRAPPER = 'org/pipelineframework/awsconformance/faults/TransitionDeliveryFaultHa
 def transition_fault_environment(text):
     """Change only the production transition worker's recognized environment form."""
     marker = '  TransitionWorkerFunction:\n'
-    if text.count(marker) != 1:
+    if len(re.findall(r'(?m)^  TransitionWorkerFunction:(?=[ \t]|$)', text)) != 1 or text.count(marker) != 1:
         raise ValueError('Unique production TransitionWorkerFunction required')
     start = text.index(marker) + len(marker)
     following = re.search(r'(?m)^(?:  [A-Za-z][A-Za-z0-9]*:|Outputs:)', text[start:])
@@ -20,6 +20,16 @@ def transition_fault_environment(text):
         raise ValueError('Production transition resource boundary missing')
     end = start + following.start()
     body = text[start:end]
+    properties = list(re.finditer(r'(?m)^    Properties:(?=[ \t]|$)', body))
+    if len(properties) != 1 or not body.startswith('    Properties:\n', properties[0].start()):
+        raise ValueError('Unique transition Properties mapping required')
+    properties_start = properties[0].end() + 1
+    following_property = re.search(r'(?m)^    \S', body[properties_start:])
+    properties_end = properties_start + following_property.start() if following_property else len(body)
+    environment_header = '      Environment:\n'
+    if (body.count(environment_header) != 1
+            or not properties_start <= body.index(environment_header) < properties_end):
+        raise ValueError('Transition environment required inside Properties')
     legacy = 'Variables: {<<: *ActionEnvironment, QUARKUS_LAMBDA_HANDLER: !Ref TransitionWorkerHandler}'
     literal_header = '      Environment:\n        Variables:\n'
     legacy_header = '      Environment:\n        ' + legacy + '\n'
@@ -36,7 +46,7 @@ def transition_fault_environment(text):
         following_field = re.search(r'(?m)^ {0,8}\S', body[variables_start:])
         variables_end = variables_start + following_field.start() if following_field else len(body)
         found = declarations[0]
-        if not (variables_start <= found.start() < found.end() <= variables_end) or not re.fullmatch(
+        if not (properties_start <= variables_start <= found.start() < found.end() <= variables_end <= properties_end) or not re.fullmatch(
                 r'''          QUARKUS_LAMBDA_HANDLER: !Ref (?:TransitionWorkerHandler|'TransitionWorkerHandler'|"TransitionWorkerHandler")\n''', found.group()):
             raise ValueError('Exact transition handler required inside Environment.Variables')
         body = body[:found.end()] + '          TPF_CONFORMANCE_TRANSITION_FAULT_TABLE: !Ref ConformanceTransitionFaultTable\n' + body[found.end():]
