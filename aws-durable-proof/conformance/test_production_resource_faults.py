@@ -1,5 +1,6 @@
 """Procedure boundary tests with substituted AWS; never live conformance evidence."""
 import importlib.util
+from itertools import product
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -58,8 +59,8 @@ class ProductionResourceFaultTest(unittest.TestCase):
     def test_transition_redelivery_requires_real_correlated_cut_and_native_consequence(self):
         from contextlib import contextmanager
         import hashlib
-        for wrong in (None, "request-pin", "claim-request", "claim-hash", "auth-reject-ack", "repeated-await", "caller-retry"):
-            with self.subTest(wrong=wrong):
+        for scenario, wrong in product(("6", "7"), (None, "request-pin", "claim-request", "claim-hash", "auth-reject-ack", "repeated-await", "caller-retry")):
+            with self.subTest(scenario=scenario, wrong=wrong):
                 p = producer()
                 p.config["placement"] = "FUNCTION"
                 p.random = SimpleNamespace(getrandbits=lambda _: 7)
@@ -95,13 +96,17 @@ class ProductionResourceFaultTest(unittest.TestCase):
                      patch.object(FAULTS, "assert_single_execution", return_value=row(status="WAITING_EXTERNAL", attempt=1 if wrong == "caller-retry" else 0)), \
                      patch.object(FAULTS, "complete_remaining") as complete, patch.object(FAULTS, "assert_success") as success:
                     if wrong:
-                        with self.assertRaises(AssertionError): FAULTS.transition_redelivery(p, owned)
+                        with self.assertRaises(AssertionError): FAULTS.transition_redelivery(p, owned, scenario)
                         complete.assert_not_called(); success.assert_not_called()
                     else:
-                        FAULTS.transition_redelivery(p, owned)
+                        FAULTS.transition_redelivery(p, owned, scenario)
                         complete.assert_called_once(); success.assert_called_once_with(p, session, PROVIDER, 1)
                     copies = [call.kwargs["message_body"] for call in p.aws.call.call_args_list if call.args[1] == "send-message"]
-                    self.assertEqual([] if wrong == "request-pin" else [body, body], copies)
+                    self.assertEqual([] if wrong == "request-pin" or scenario == "6" else [body, body], copies)
+                    points = [call.kwargs["item"]["fault_id"]["S"].rsplit("#", 1)[1]
+                              for call in p.aws.call.call_args_list if call.args[1] == "put-item"]
+                    self.assertEqual([] if wrong == "request-pin" else (["AFTER_ACK"] if scenario == "6"
+                                     else ["BEFORE_DELEGATE", "AFTER_ACK"]), points)
                     self.assertFalse(any(call.args[1] in {"delete-item", "update-item"} for call in p.aws.call.call_args_list))
 
     def test_transition_fixture_compute_is_explicitly_unavailable_before_any_io(self):

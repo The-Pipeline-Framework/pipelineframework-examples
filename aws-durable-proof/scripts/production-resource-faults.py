@@ -14,7 +14,7 @@ import json
 import time
 import uuid
 
-SUPPORTED_SCENARIOS = {"7", "14", "15", "16", "18", "19", "22", "missing-registration", "suspended-timeout",
+SUPPORTED_SCENARIOS = {"6", "7", "14", "15", "16", "18", "19", "22", "missing-registration", "suspended-timeout",
                        "nonterminal-provider-loss", "suspended-continuation"}
 CALLBACK_FAILURE_VARIANT = "INJECTED_CALLBACK_FAILURE"
 SOURCES = {
@@ -877,21 +877,22 @@ def transition_request(producer, session, queue):
     return message, request, command
 
 
-def transition_redelivery(producer, owned):
+def transition_redelivery(producer, owned, scenario="7"):
+    require(scenario in {"6", "7"}, "unsupported transition delivery cut")
     table = transition_fixture_binding(producer, owned)
     queue = owned.owns(owned.manifest["queueUrls"]["transitionRequest"], "AWS::SQS::Queue")
     with paused_worker(producer, owned, "transition", transition_handler="conformance-transition-delivery"):
-        session = start_native(producer, "7", "initial-approval")
+        session = start_native(producer, scenario, "initial-approval")
         require(not native_rows(producer, "AwaitInteractionTable", session["tenant"]),
                 "transition request was already consumed before the requested fault")
         message, request, command = transition_request(producer, session, queue)
         arms = []
-        for point in ("BEFORE_DELEGATE", "AFTER_ACK"):
+        for point in (("AFTER_ACK",) if scenario == "6" else ("BEFORE_DELEGATE", "AFTER_ACK")):
             fault_id = session["tenant"] + "#TRANSITION#" + point
             producer.aws.call("dynamodb", "put-item", table_name=table, item={"fault_id": {"S": fault_id}},
                               condition_expression="attribute_not_exists(fault_id)")
             arms.append((fault_id, point))
-        for _ in range(2):
+        for _ in range(0 if scenario == "6" else 2):
             producer.aws.call("sqs", "send-message", queue_url=queue, message_body=message["Body"])
         producer.aws.call("sqs", "change-message-visibility", queue_url=queue,
                           receipt_handle=message["ReceiptHandle"], visibility_timeout=0)
@@ -920,7 +921,7 @@ def transition_redelivery(producer, owned):
     session["provider"] = provider
     # executeBlocking returns only after a requestId-matched, authenticated response.
     # Merely receiving an ACK for an auth rejection/replayed nonce cannot satisfy this.
-    producer.aws.capture("transition-redelivery-native-consequence", {"requestId": request["requestId"],
+    producer.aws.capture("transition-redelivery-native-consequence", {"id": scenario, "requestId": request["requestId"],
         "transitionKey": command["transitionKey"], "claims": claims, "native": native, "interactions": interactions,
         "responseObservation": "NATIVE_CALLER_AUTHENTICATED_RESPONSE_ACCEPTANCE", "rawResponseCaptured": False,
         "nonceReplayMayDiscardDuplicate": True})
@@ -937,8 +938,8 @@ def run(producer, scenario):
         nonterminal_loss(producer, owned)
     elif scenario == "suspended-continuation":
         suspended_continuation(producer, owned)
-    elif scenario == "7":
-        transition_redelivery(producer, owned)
+    elif scenario in {"6", "7"}:
+        transition_redelivery(producer, owned, scenario)
     elif scenario == "15":
         generation_fence(producer, owned)
     elif scenario == "14":

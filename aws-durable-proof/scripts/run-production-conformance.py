@@ -6,6 +6,7 @@ remain visible and fail promotion. This runner never calls a historical proof ha
 """
 import argparse
 import base64
+from collections import deque
 import re
 import hashlib
 import importlib.util
@@ -21,6 +22,12 @@ SPEC.loader.exec_module(GATE)
 RESOURCE_SPEC = importlib.util.spec_from_file_location("production_resource_faults", Path(__file__).with_name("production-resource-faults.py"))
 RESOURCE_FAULTS = importlib.util.module_from_spec(RESOURCE_SPEC)
 RESOURCE_SPEC.loader.exec_module(RESOURCE_FAULTS)
+BINDING_SPEC = importlib.util.spec_from_file_location("production_binding_races", Path(__file__).with_name("production-binding-races.py"))
+BINDING_RACES = importlib.util.module_from_spec(BINDING_SPEC)
+BINDING_SPEC.loader.exec_module(BINDING_RACES)
+WORK_SPEC = importlib.util.spec_from_file_location("production_work_faults", Path(__file__).with_name("production-work-faults.py"))
+WORK_FAULTS = importlib.util.module_from_spec(WORK_SPEC)
+WORK_SPEC.loader.exec_module(WORK_FAULTS)
 
 
 class AwsBoundary:
@@ -100,6 +107,14 @@ class ProductionScenarios:
             GATE.require(deployment.get(key) == expected, "deployment manifest identity differs: " + key)
         GATE.require(deployment.get("schemaVersion") == 1, "production deployment manifest schema differs")
         GATE.require(deployment["isolationMode"] in {"FRESH_RELEASE_ISOLATED_STACK", "DRAINED_RELEASE_MIGRATION"}, "release isolation evidence missing")
+        expected_action_code = base64.b64encode(bytes.fromhex(digest)).decode()
+        expected_durable_code = base64.b64encode(hashlib.sha256((self.bundle / "coordinator.jar").read_bytes()).digest()).decode()
+        GATE.require(deployment.get("actionCodeSha256") == expected_action_code
+                     and deployment.get("durableCodeSha256") == expected_durable_code,
+                     "deployment package digests differ from the inspected candidate")
+        GATE.require(set(deployment["functionVersionArns"]) == {"durable", "ingress", "action", "work", "transition",
+                     "awaitCompletion", "awaitWakeup", "executionWakeup", "dueWork", "reconciliation"},
+                     "production deployment manifest host set is incomplete or unknown")
         for role, arn in deployment["functionVersionArns"].items():
             if role == "transition" and self.config["placement"] == "COMPUTE":
                 GATE.require(not arn, "COMPUTE must not claim a Lambda transition consumer")
@@ -108,6 +123,8 @@ class ProductionScenarios:
                          "every production Lambda host requires a retained numeric version: " + role)
             function = self.aws.call("lambda", "get-function-configuration", function_name=arn)
             GATE.require(str(function["Version"]) == arn.rsplit(":", 1)[1], "numeric host version changed: " + role)
+            GATE.require(function.get("CodeSha256") == (expected_durable_code if role in {"durable", "ingress"} else expected_action_code),
+                         "deployed host code differs from the inspected candidate: " + role)
         GATE.require(deployment["functionVersionArns"]["action"] == self.config["actionVersionArn"],
                      "producer action differs from release manifest pinned host")
         self.aws.capture("deployment-release-manifest", deployment)
@@ -196,31 +213,42 @@ class ProductionScenarios:
                 "sk": {"S": "GEN#00000000000000000001"}}).get("Item", {})
 
     def replay_completed_stream_record(self, checkpoint):
+        target = self.config["awaitWakeupVersionArn"]
+        deployment = json.loads(self.outputs["DeploymentReleaseManifest"])
+        GATE.require(target == deployment["functionVersionArns"]["awaitWakeup"],
+                     "Stream replay target differs from the checked deployment manifest")
         stream = self.parameters["AwaitInteractionStreamArn"]
         description = self.aws.call("dynamodbstreams", "describe-stream", stream_arn=stream)["StreamDescription"]
-        for shard in description["Shards"]:
-            cursor = self.aws.call("dynamodbstreams", "get-shard-iterator", stream_arn=stream,
-                shard_id=shard["ShardId"], shard_iterator_type="TRIM_HORIZON")["ShardIterator"]
-            for _ in range(100):
-                page = self.aws.call("dynamodbstreams", "get-records", shard_iterator=cursor, limit=100)
-                for record in page["Records"]:
-                    image = record.get("dynamodb", {}).get("NewImage", {})
-                    if (image.get("interaction_id", {}).get("S") == checkpoint["interactionId"]
-                        and image.get("status", {}).get("S") == "COMPLETED"):
-                        # GetRecords omits the event-source context that Lambda supplies.
-                        record["eventSourceARN"] = stream
-                        target = self.config["awaitWakeupVersionArn"]
-                        configuration = self.aws.call("lambda", "get-function-configuration", function_name=target)
-                        GATE.require(configuration["Environment"]["Variables"]["QUARKUS_LAMBDA_HANDLER"]
-                                     == "aws-durable-await-wakeup", "actual production stream handler required")
-                        for _ in range(2):
-                            response = self.aws.invoke(target, {"Records": [record]})
-                            GATE.require(not response.get("batchItemFailures"), "actual stream record replay failed")
-                        return
-                cursor = page.get("NextShardIterator")
-                if not cursor or not page["Records"]:
-                    break
-        raise AssertionError("No actual completed semantic Dynamo Stream record was captured")
+        if description.get("LastEvaluatedShardId"):
+            raise NotImplementedError("semantic Stream shard enumeration is incomplete")
+        pending = deque((shard["ShardId"], None) for shard in description["Shards"])
+        for _ in range(100):
+            if not pending:
+                break
+            shard, cursor = pending.popleft()
+            if cursor is None:
+                cursor = self.aws.call("dynamodbstreams", "get-shard-iterator", stream_arn=stream,
+                    shard_id=shard, shard_iterator_type="TRIM_HORIZON")["ShardIterator"]
+            page = self.aws.call("dynamodbstreams", "get-records", shard_iterator=cursor, limit=100)
+            for record in page["Records"]:
+                image = record.get("dynamodb", {}).get("NewImage", {})
+                if (all(image.get(field, {}).get("S") == checkpoint[key] for field, key in
+                        (("tenant_id", "tenantId"), ("interaction_id", "interactionId"), ("correlation_id", "correlationId")))
+                    and image.get("status", {}).get("S") == "COMPLETED"):
+                    # GetRecords omits the event-source context that Lambda supplies.
+                    record = dict(record, eventSourceARN=stream)
+                    configuration = self.aws.call("lambda", "get-function-configuration", function_name=target)
+                    GATE.require(configuration["Environment"]["Variables"]["QUARKUS_LAMBDA_HANDLER"]
+                                 == "aws-durable-await-wakeup", "actual production stream handler required")
+                    for _ in range(2):
+                        response = self.aws.invoke(target, {"Records": [record]})
+                        GATE.require(not response.get("batchItemFailures"), "actual stream record replay failed")
+                    return
+            cursor = page.get("NextShardIterator")
+            # An empty page is not exhaustion. Rotate live shards within one global budget.
+            if cursor:
+                pending.append((shard, cursor))
+        raise NotImplementedError("actual completed semantic Stream record unavailable within the read budget")
 
     def complete(self, checkpoint, request):
         return self.aws.call("sqs", "send-message", queue_url=self.outputs["AwaitCompletionQueueUrl"],
@@ -320,8 +348,8 @@ class ProductionScenarios:
                       lambda status: status.get("executionStatus") == "SUCCEEDED")
         result = json.loads(producer.action("RESULT", tenant, execution_id)["resultJson"])
         GATE.require(isinstance(result, list) and len(result) == count, "item result was truncated or duplicated")
-        GATE.require(sorted(item["request"] for item in result) == sorted("approved-" + str(index) for index in range(count)),
-                     "typed item completion values were lost or changed")
+        GATE.require(result == [{"request": "approved-" + str(index)} for index in range(count)],
+                     "typed item completion values or numeric lineage order changed")
         retained = producer.rows("AwaitInteractionTable", tenant)
         GATE.require(len(retained) == count and all(row["status"]["S"] == "COMPLETED" for row in retained),
                      "all real semantic item interactions must settle once")
@@ -341,7 +369,11 @@ class ProductionScenarios:
         for scenario in scenarios:
             start = len(self.aws.references)
             try:
-                if scenario in RESOURCE_FAULTS.SUPPORTED_SCENARIOS:
+                if scenario in WORK_FAULTS.SUPPORTED_SCENARIOS:
+                    WORK_FAULTS.run(self, scenario)
+                elif scenario in BINDING_RACES.SUPPORTED_SCENARIOS:
+                    BINDING_RACES.run(self, scenario)
+                elif scenario in RESOURCE_FAULTS.SUPPORTED_SCENARIOS:
                     RESOURCE_FAULTS.run(self, scenario)
                 elif scenario in {"concurrent-item-await", "more-than-100-await-records"} and self.config.get("itemDeployment"):
                     self.item_awaits(scenario)
@@ -349,7 +381,8 @@ class ProductionScenarios:
                     self.sequential(scenario)
                 else:
                     outcomes.append({"id": scenario, "placement": self.config["placement"], "status": "NOT_IMPLEMENTED",
-                                     "rawEvidence": [], "reason": "Production scenario procedure is not implemented"})
+                                     "rawEvidence": [], "reason": BINDING_RACES.GAPS.get(scenario,
+                                         "Production scenario procedure is not implemented")})
                     continue
                 status, reason = "PASSED", ""
             except NotImplementedError as failure:
