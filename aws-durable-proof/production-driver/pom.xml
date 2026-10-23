@@ -17,9 +17,28 @@
             <artifactId>pipelineframework-aws-durable-coordination-host</artifactId>
             <version>${pipelineframework.runtime.version}</version>
         </dependency>
+        <dependency>
+            <!-- The Quarkus BOM excludes Commons Logging from Apache HttpClient.
+                 Raw Lambda handlers need its platform-compatible bridge in the distribution. -->
+            <groupId>org.jboss.logging</groupId>
+            <artifactId>commons-logging-jboss-logging</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution><goals><goal>integration-test</goal><goal>verify</goal></goals></execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
