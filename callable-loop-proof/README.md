@@ -5,10 +5,10 @@ used by callable and agentic loops:
 
 ```text
 AgentState -> one-turn LLM Query -> AgentCall -> dynamic Query | Command
-           -> OperationObservation -> authored reducer -> AgentState -> pipeline:callable-loop-proof
+           -> OperationObservation -> authored reducer -> AgentState -> recur: [AgentState]
 ```
 
-The `complete` decision variant carries an ordinary typed `ApplicationResult` to the terminal step.
+The `complete` decision variant carries an ordinary typed `ApplicationResult` to definition completion.
 The Block artifact owns the state, decision union, reducer, recursion, completion, and callable
 catalogue. The consuming application owns only the connector bindings and explicit Command authority,
 then invokes `pipeline: callable-loop-proof`.
@@ -21,7 +21,8 @@ model neither sees nor authors Command identity data. The recorder counts connec
 assertions but never influences a decision.
 
 The proof uses the real connector packaging, contributed protocol types, provider-backed Query and
-Command runtimes, dynamic operation adapter, generated branch routing, and bounded direct recursion.
+Command runtimes, dynamic operation adapter, generated branch routing, and bounded definition-owned recursion. Each concrete input has one authored consumer;
+the compiler supplies the continuing invocation and typed branch completion.
 It adds no reusable generic-agent API, Agent runtime, dispatch step kind, execution ledger, memory
 subsystem, MCP, or Await path.
 
