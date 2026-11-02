@@ -49,6 +49,9 @@
     </scm>
 
     <properties>
+        <!-- Pin the Java 21 JVM image; avoid Quarkus's implicit Red Hat registry download. -->
+        <quarkus.jib.base-jvm-image>docker.io/library/eclipse-temurin:21-jre-jammy@sha256:1eac8b8fee11ca7d6725a48bc5d41992ed1561504ebae25490d2d062847e8269</quarkus.jib.base-jvm-image>
+        <quarkus.jib.user>185</quarkus.jib.user>
         <pipelineframework.bom.version>26.11.1-SNAPSHOT</pipelineframework.bom.version>
         <pipelineframework.compiler.version>26.11.1-SNAPSHOT</pipelineframework.compiler.version>
         <pipelineframework.runtime.version>26.11.1-SNAPSHOT</pipelineframework.runtime.version>
