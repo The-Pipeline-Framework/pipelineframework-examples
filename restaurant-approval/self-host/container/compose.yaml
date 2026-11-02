@@ -34,7 +34,7 @@ services:
       SERVER_KEYSTORE_PATH: "${TPF_REPO_ROOT:?TPF_REPO_ROOT must be set}/restaurant-approval/target/dev-certs/monolith-svc/server-keystore.p12"
       PIPELINE_CONFIG: "${TPF_REPO_ROOT:?TPF_REPO_ROOT must be set}/restaurant-approval/config/pipeline.yaml"
       TPF_WORKER_SECRET: "${TPF_WORKER_SECRET:-restaurant-transition-worker-secret}"
-      JAVA_OPTS_APPEND: >-
+      JAVA_TOOL_OPTIONS: >-
         --enable-preview
         -Dquarkus.http.host=0.0.0.0
         -Dquarkus.http.port=8181
@@ -79,7 +79,7 @@ services:
       TPF_CONTROL_PLANE_TOKEN: "${TPF_CONTROL_PLANE_TOKEN:-restaurant-control-plane-admin-token}"
       TPF_ADMIN_TOKEN: "${TPF_ADMIN_TOKEN:-restaurant-control-plane-admin-token}"
       TPF_WORKER_SECRET: "${TPF_WORKER_SECRET:-restaurant-transition-worker-secret}"
-      JAVA_OPTS_APPEND: >-
+      JAVA_TOOL_OPTIONS: >-
         --enable-preview
         -Dquarkus.http.host=0.0.0.0
         -Dquarkus.http.port=8081
