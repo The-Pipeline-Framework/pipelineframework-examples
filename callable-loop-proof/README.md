@@ -5,7 +5,7 @@ used by callable and agentic loops:
 
 ```text
 AgentState -> one-turn LLM Query -> AgentCall -> dynamic Query | Command
-           -> OperationObservation -> authored reducer -> AgentState -> recur: [AgentState]
+           -> OperationObservation -> authored reducer -> AgentState -> Recur (pipeline: self)
 ```
 
 The `complete` decision variant carries an ordinary typed `ApplicationResult` to definition completion.

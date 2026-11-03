@@ -57,7 +57,6 @@ pipelines:
   callable-loop-proof:
     input: AgentState
     output: ApplicationResult
-    recur: [AgentState]
     steps:
       - name: Decide
         kind: query
@@ -111,3 +110,11 @@ pipelines:
         java:
           input: org.pipelineframework.examples.agentproof.domain.OperationObservation
           output: org.pipelineframework.examples.agentproof.domain.AgentState
+      - name: Recur
+        pipeline: self
+        cardinality: ONE_TO_ONE
+        input: AgentState
+        output: ApplicationResult
+        java:
+          input: org.pipelineframework.examples.agentproof.domain.AgentState
+          output: org.pipelineframework.examples.agentproof.domain.ApplicationResult

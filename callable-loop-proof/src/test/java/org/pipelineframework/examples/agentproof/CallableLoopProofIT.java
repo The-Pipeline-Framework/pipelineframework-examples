@@ -98,7 +98,7 @@ class CallableLoopProofIT {
             failure, PipelineRecursionLimitExceededException.class);
 
         assertEquals("org.pipelineframework.examples.callable/callable-loop-proof", limit.definitionId());
-        assertEquals("$recur", limit.callsiteId());
+        assertEquals("Recur", limit.callsiteId());
         assertEquals(2, limit.attemptedDepth());
         assertEquals(1, limit.maximumDepth());
         assertEquals(2, recorder.inferenceCount());
@@ -131,7 +131,7 @@ class CallableLoopProofIT {
         assertTrue(contract.contains("Decide"), contract);
         assertTrue(contract.contains("Invoke proposal"), contract);
         assertTrue(contract.contains("Reduce observation"), contract);
-        assertTrue(contract.contains("$recur"), contract);
+        assertTrue(contract.contains("Recur"), contract);
         assertTrue(branching.contains("AgentCall"), branching);
         assertTrue(branching.contains("ApplicationResult"), branching);
         assertFalse(contract.contains("proof-scope"));
