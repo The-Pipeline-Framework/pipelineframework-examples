@@ -1,8 +1,6 @@
 name: AWS Durable Historical Diagnostics and Production Gate
 
 on:
-  schedule:
-    - cron: '43 2 * * *'
   workflow_dispatch:
     inputs:
       lane:
@@ -123,11 +121,35 @@ jobs:
             --bom-sha "$BOM_SHA" \
             --examples-sha "$EXAMPLES_SHA"
   deployed-proof:
-    if: github.event_name != 'workflow_dispatch' || inputs.lane != 'promotion'
+    if: github.event_name == 'workflow_dispatch' && (inputs.lane == 'full' || inputs.lane == 'history')
     runs-on: ubuntu-latest
     timeout-minutes: 120
     environment: aws-durable-proof
+    env:
+      PROOF_REGION: ${{ vars.AWS_DURABLE_PROOF_REGION || 'us-east-2' }}
+      PROOF_LANE: ${{ inputs.lane }}
+      PROOF_STACK: tpf-durable-${{ github.run_id }}-${{ github.run_attempt }}
+      PROOF_TEST_REPORT: aws-durable-proof/fault-tests/target/failsafe-reports/TEST-org.pipelineframework.awsproof.DeployedAwsDurableProofIT.xml
     steps:
+      - name: Select diagnostic evidence and check configuration
+        id: diagnostics
+        env:
+          ROLE_ARN: ${{ vars.AWS_DURABLE_PROOF_ROLE_ARN }}
+        run: |
+          case "$PROOF_LANE" in
+            full) report=aws-durable-proof/proof-report.json ;;
+            history) report=aws-durable-proof/history-loss-evidence.json ;;
+            *) echo "::error::Unsupported diagnostic lane"; exit 2 ;;
+          esac
+          echo "report=$report" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "::error::AWS Durable diagnostics must run from main"
+            exit 1
+          fi
+          if [[ -z "$ROLE_ARN" ]]; then
+            echo "::error::Set AWS_DURABLE_PROOF_ROLE_ARN in the aws-durable-proof environment"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -138,20 +160,12 @@ jobs:
           cache: maven
           cache-path: ${{ github.workspace }}/.m2/repository
       - uses: aws-actions/setup-sam@f84ec7d548307efafe33230528756de3c5841a17 # v2
-      - name: Require protected AWS role configuration
-        env:
-          ROLE_ARN: ${{ vars.AWS_DURABLE_PROOF_ROLE_ARN }}
-        run: test -n "$ROLE_ARN"
       - name: Configure short-lived AWS credentials
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
         with:
           role-to-assume: ${{ vars.AWS_DURABLE_PROOF_ROLE_ARN }}
           aws-region: ${{ vars.AWS_DURABLE_PROOF_REGION || 'us-east-2' }}
       - name: Run disposable historical diagnostics (not production promotion)
-        env:
-          PROOF_REGION: ${{ vars.AWS_DURABLE_PROOF_REGION || 'us-east-2' }}
-          PROOF_LANE: ${{ github.event.inputs.lane || 'full' }}
-          PROOF_STACK: tpf-durable-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           lane_args=()
           case "$PROOF_LANE" in
@@ -163,11 +177,46 @@ jobs:
             --region "$PROOF_REGION" \
             --stack-name "$PROOF_STACK" \
             "${lane_args[@]}"
+      - name: Require passing diagnostic evidence
+        env:
+          PROOF_REPORT: ${{ steps.diagnostics.outputs.report }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          report = json.loads(Path(os.environ["PROOF_REPORT"]).read_text(encoding="utf-8"))
+          if (report.get("stack"), report.get("region")) != (os.environ["PROOF_STACK"], os.environ["PROOF_REGION"]):
+              raise SystemExit("Diagnostic report does not match this run's stack and region")
+          evidence = report["evidence"]
+          groups = {entry["group"] for entry in evidence}
+          history_group = "provider-history-loss-recovery"
+          if history_group not in groups or any(entry["status"] != "PASSED" for entry in evidence):
+              raise SystemExit("Diagnostic report lacks passing history recovery or contains failed evidence")
+
+          suite = ET.parse(os.environ["PROOF_TEST_REPORT"]).getroot()
+          cases = suite.findall("testcase")
+          if (not cases or int(suite.attrib["tests"]) != len(cases)
+                  or any(int(suite.attrib[key]) != 0 for key in ("failures", "errors", "skipped"))
+                  or any(case.find(tag) is not None for case in cases for tag in ("failure", "error", "skipped"))):
+              raise SystemExit("Diagnostic test report must contain executed tests with no failures, errors or skips")
+          history_test = "providerHistoryLossRecoversFromTheTpfSemanticCheckpoint"
+          test_names = [case.attrib["name"] for case in cases]
+          if os.environ["PROOF_LANE"] == "history":
+              if test_names != [history_test] or groups != {history_group}:
+                  raise SystemExit("History lane must execute only the history recovery test")
+          elif history_test not in test_names or len(set(test_names)) < 2 or len(groups) < 2:
+              raise SystemExit("Full lane must execute history recovery and the wider diagnostic suite")
+          PYTHON
       - name: Upload proof evidence
-        if: always()
+        if: always() && steps.diagnostics.outputs.report != ''
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: aws-durable-proof-${{ github.run_id }}-${{ github.run_attempt }}
-          path: aws-durable-proof/proof-report.json
+          path: |
+            ${{ steps.diagnostics.outputs.report }}
+            ${{ env.PROOF_TEST_REPORT }}
           if-no-files-found: warn
           retention-days: 30
