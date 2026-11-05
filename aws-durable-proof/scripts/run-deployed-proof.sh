@@ -3,19 +3,23 @@ set -euo pipefail
 
 region="us-east-2"
 role_arn=""
+cloudformation_role_arn=""
+execution_boundary_arn=""
 stack_name=""
 keep_success=false
 keep_failure=false
 history_only=false
 
 usage() {
-  echo "usage: $0 --stack-name NAME [--region REGION] [--role-arn ARN] [--keep-on-success] [--keep-on-failure] [--promotion-only] [--history-only]" >&2
+  echo "usage: $0 --stack-name NAME [--region REGION] [--role-arn ARN] [--cloudformation-role-arn ARN --execution-boundary-arn ARN] [--keep-on-success] [--keep-on-failure] [--promotion-only] [--history-only]" >&2
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --region) region="$2"; shift 2 ;;
     --role-arn) role_arn="$2"; shift 2 ;;
+    --cloudformation-role-arn) cloudformation_role_arn="$2"; shift 2 ;;
+    --execution-boundary-arn) execution_boundary_arn="$2"; shift 2 ;;
     --stack-name) stack_name="$2"; shift 2 ;;
     --keep-on-success) keep_success=true; shift ;;
     --keep-on-failure) keep_failure=true; shift ;;
@@ -30,6 +34,12 @@ done
 if [[ -z "$stack_name" || ! "$stack_name" =~ ^[a-z0-9-]+$ ]]; then
   usage
   echo "stack name must contain only lowercase letters, digits, and hyphens" >&2
+  exit 2
+fi
+
+if [[ -n "$cloudformation_role_arn" && -z "$execution_boundary_arn" ||
+      -z "$cloudformation_role_arn" && -n "$execution_boundary_arn" ]]; then
+  echo "Supply the CloudFormation role and execution boundary together" >&2
   exit 2
 fi
 
@@ -178,7 +188,22 @@ sam package \
 
 resume_secret=$(openssl rand -hex 32)
 worker_secret=$(openssl rand -hex 32)
+deployment_role_args=()
+deployment_parameters=(
+  "ProofName=$stack_name"
+  "ResumeTokenSecret=$resume_secret"
+  "WorkerSharedSecret=$worker_secret"
+  "ArtifactBucket=$artifact_bucket"
+  "DurableArtifactKey=$driver_key"
+  "DurableCodeSha256=$driver_sha"
+  "ActionArtifactDigest=$action_artifact_digest"
+)
+if [[ -n "$cloudformation_role_arn" ]]; then
+  deployment_role_args=(--role-arn "$cloudformation_role_arn")
+  deployment_parameters+=("ExecutionPermissionsBoundary=$execution_boundary_arn")
+fi
 sam deploy \
+  ${deployment_role_args[@]+"${deployment_role_args[@]}"} \
   --template-file "$packaged_template" \
   --stack-name "$stack_name" \
   --region "$region" \
@@ -186,14 +211,7 @@ sam deploy \
   --no-confirm-changeset \
   --no-fail-on-empty-changeset \
   --tags issue=976 purpose=aws-durable-proof \
-  --parameter-overrides \
-    ProofName="$stack_name" \
-    ResumeTokenSecret="$resume_secret" \
-    WorkerSharedSecret="$worker_secret" \
-    ArtifactBucket="$artifact_bucket" \
-    DurableArtifactKey="$driver_key" \
-    DurableCodeSha256="$driver_sha" \
-    ActionArtifactDigest="$action_artifact_digest"
+  --parameter-overrides "${deployment_parameters[@]}"
 
 ./mvnw -N install -DskipTests -Dgpg.skip \
   -Dmaven.repo.local="$maven_repo" --no-transfer-progress

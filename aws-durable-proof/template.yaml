@@ -7,6 +7,10 @@ Parameters:
     Type: String
     Default: issue-976
     AllowedPattern: '[a-z0-9-]+'
+  ExecutionPermissionsBoundary:
+    Type: String
+    Default: ''
+    Description: Optional permissions boundary for disposable Lambda roles. Required by the Examples diagnostics workflow.
   ResumeTokenSecret:
     Type: String
     NoEcho: true
@@ -24,6 +28,9 @@ Parameters:
   ActionArtifactDigest:
     Type: String
     AllowedPattern: '^sha256:[0-9a-f]{64}$'
+
+Conditions:
+  BoundedExecutionRoles: !Not [!Equals [!Ref ExecutionPermissionsBoundary, '']]
 
 Globals:
   Function:
@@ -300,6 +307,8 @@ Resources:
   DurableExecutionRole:
     Type: AWS::IAM::Role
     Properties:
+      Path: !If [BoundedExecutionRoles, /tpf-durable-proof/, !Ref 'AWS::NoValue']
+      PermissionsBoundary: !If [BoundedExecutionRoles, !Ref ExecutionPermissionsBoundary, !Ref 'AWS::NoValue']
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -325,6 +334,8 @@ Resources:
   ActionHostRole:
     Type: AWS::IAM::Role
     Properties:
+      Path: !If [BoundedExecutionRoles, /tpf-durable-proof/, !Ref 'AWS::NoValue']
+      PermissionsBoundary: !If [BoundedExecutionRoles, !Ref ExecutionPermissionsBoundary, !Ref 'AWS::NoValue']
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
