@@ -12,6 +12,18 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ProductionBoundaryTest(unittest.TestCase):
+    def test_binding_order_dispatch_uses_production_procedure_and_preserves_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "pipeline-contract.json").write_text('{"pipelineId":"generated"}')
+            boundary = RUNNER.AwsBoundary("us-east-1", root)
+            producer = RUNNER.ProductionScenarios({"placement": "FUNCTION"}, root, 7, boundary)
+            with patch.object(RUNNER.BINDING_RACES, "run", side_effect=AssertionError("wrong callback order")) as procedure:
+                outcome = producer.run(["10"])[0]
+            procedure.assert_called_once_with(producer, "10")
+            self.assertEqual("FAILED", outcome["status"])
+            self.assertIn("wrong callback order", outcome["reason"])
+
     def test_injected_callback_diagnostic_normal_return_cannot_pass_original_expiry_scenario(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

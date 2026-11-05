@@ -10,6 +10,9 @@ ROOT = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location('transition_fixture', ROOT / 'scripts/transition-fault-fixture.py')
 FIXTURE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(FIXTURE)
+PREP_SPEC = importlib.util.spec_from_file_location('combined_prepare', ROOT / 'scripts/prepare-production-bundle.py')
+PREPARE = importlib.util.module_from_spec(PREP_SPEC)
+PREP_SPEC.loader.exec_module(PREPARE)
 DEPLOYMENT = Path(os.environ.get('TPF_AWS_DURABLE_DEPLOYMENT_JAR',
     str(ROOT / 'production-tests/target/conformance-dependencies/deployment.jar')))
 
@@ -18,6 +21,20 @@ def production_template():
         return archive.read('aws-durable-queue-async.yaml')
 
 class TransitionFaultFixtureTest(unittest.TestCase):
+    def test_combined_work_and_transition_wiring_retains_original_provenance(self):
+        import hashlib
+        source = production_template()
+        combined = PREPARE.combined_delivery_template(source)
+        self.assertIn(b'Default: conformance-work-delivery', combined)
+        self.assertIn(b'Default: conformance-transition-delivery', combined)
+        self.assertIn(b'ConformanceWorkFaultAccess:', combined)
+        self.assertIn(b'ConformanceTransitionFaultAccess:', combined)
+        digest = hashlib.sha256(source).hexdigest().encode()
+        self.assertEqual(2, combined.count(b'"productionTemplateSha256":"' + digest + b'"'))
+        for preserved in (b'CompletionObservationOutstandingAlarm:', b'TransitionResponseQueue:', b'LoggingConfig:'):
+            self.assertIn(preserved, combined)
+        self.assertNotIn(b'conformance-work-delivery', source)
+
     def test_derivation_keeps_production_worker_and_alarm_contracts(self):
         source = production_template()
         derived = FIXTURE.derived_template(source)

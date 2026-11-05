@@ -4,6 +4,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Map;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Objects;
 
 import com.amazonaws.services.lambda.runtime.Context;
@@ -54,21 +58,34 @@ public final class ActionTransportFaultProxy implements RequestStreamHandler {
         if (operation.isBlank() || tenant.isBlank()) {
             throw new IllegalArgumentException("Proxy requires a production action operation and tenant correlation");
         }
-        injectOnce("BEFORE_FORWARD", operation, tenant);
+        injectOnce("BEFORE_FORWARD", operation, tenant, envelope, request);
         var response = lambda.invoke(InvokeRequest.builder().functionName(target).payload(SdkBytes.fromByteArray(request)).build());
         if (response.functionError() != null && !response.functionError().isBlank()) {
             throw new IOException("Production target failed: " + response.functionError());
         }
-        injectOnce("AFTER_RESPONSE", operation, tenant);
+        injectOnce("AFTER_RESPONSE", operation, tenant, envelope, request);
         output.write(response.payload().asByteArray());
     }
 
-    private void injectOnce(String point, String operation, String tenant) throws IOException {
+    private void injectOnce(String point, String operation, String tenant, JsonNode envelope, byte[] request) throws IOException {
         String armId = tenant + "#" + operation + "#" + point;
         var arm = dynamo.getItem(GetItemRequest.builder().tableName(faultTable).consistentRead(true)
             .key(Map.of("fault_id", AttributeValue.fromS(armId))).build());
         if (!arm.hasItem()) {
             return;
+        }
+        String mode = arm.item().getOrDefault("mode", AttributeValue.fromS("ONCE")).s();
+        if ("HOLD".equals(mode)) {
+            // A HOLD is fixture-only and valid at just this transport cut. Unlike
+            // ONCE, a previously recorded claim never authorises a retry forward.
+            if (!"BEFORE_FORWARD".equals(point) || !"REGISTER_CALLBACK".equals(operation)) {
+                return;
+            }
+            holdRegistration(armId, tenant, envelope, request);
+            return;
+        }
+        if (!"ONCE".equals(mode)) {
+            throw new IllegalArgumentException("Unknown external fault mode");
         }
         try {
             dynamo.putItem(PutItemRequest.builder().tableName(faultTable)
@@ -79,6 +96,54 @@ public final class ActionTransportFaultProxy implements RequestStreamHandler {
             return;
         }
         throw new IOException("Injected external action transport failure: " + point + " " + operation);
+    }
+
+    private void holdRegistration(String armId, String tenant, JsonNode envelope, byte[] request) throws IOException {
+        var release = dynamo.getItem(GetItemRequest.builder().tableName(faultTable).consistentRead(true)
+            .key(Map.of("fault_id", AttributeValue.fromS(armId + "#RELEASE"))).build());
+        if (release.hasItem()) {
+            return;
+        }
+        String executionId = requiredText(envelope, "executionId");
+        long generation = envelope.path("generation").asLong(0);
+        if (generation < 1) {
+            throw new IllegalArgumentException("Held registration requires positive generation");
+        }
+        var claim = Map.ofEntries(
+            Map.entry("fault_id", AttributeValue.fromS(armId + "#CLAIM")),
+            Map.entry("mode", AttributeValue.fromS("HOLD")),
+            Map.entry("point", AttributeValue.fromS("BEFORE_FORWARD")),
+            Map.entry("operation", AttributeValue.fromS("REGISTER_CALLBACK")),
+            Map.entry("target", AttributeValue.fromS(target)),
+            Map.entry("tenant_id", AttributeValue.fromS(tenant)),
+            Map.entry("execution_id", AttributeValue.fromS(executionId)),
+            Map.entry("generation", AttributeValue.fromN(Long.toString(generation))),
+            Map.entry("request_sha256", AttributeValue.fromS(sha256(request))),
+            Map.entry("request_json", AttributeValue.fromS(new String(request, StandardCharsets.UTF_8))));
+        try {
+            dynamo.putItem(PutItemRequest.builder().tableName(faultTable).item(claim)
+                .conditionExpression("attribute_not_exists(fault_id)").build());
+        } catch (ConditionalCheckFailedException alreadyHeld) {
+            // Every retry still fails before the real target, including retries
+            // with different serialized bytes. Only the fixture RELEASE opens it.
+        }
+        throw new IOException("Held external REGISTER_CALLBACK before production forwarding");
+    }
+
+    private String requiredText(JsonNode envelope, String field) {
+        String value = envelope.path(field).asText();
+        if (value.isBlank()) {
+            throw new IllegalArgumentException("Held registration requires " + field);
+        }
+        return value;
+    }
+
+    private String sha256(byte[] request) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(request));
+        } catch (NoSuchAlgorithmException unavailable) {
+            throw new IllegalStateException("SHA-256 is required", unavailable);
+        }
     }
 
     private static String requiredEnvironment(String name) {
