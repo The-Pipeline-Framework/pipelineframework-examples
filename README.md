@@ -27,7 +27,7 @@ Real applications and long-lived reference implementations intentionally live el
 
 ## Build
 
-The examples consume released `26.9.4-SNAPSHOT` TPF artifacts from Maven Central's snapshot repository.
+The examples consume the active `26.11.1-SNAPSHOT` TPF artifacts from Maven Central's snapshot repository.
 
 ```sh
 ./mvnw clean verify -U -Dgpg.skip -Dmaven.repo.local="$PWD/.m2/repository"
