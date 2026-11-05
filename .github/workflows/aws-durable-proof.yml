@@ -124,7 +124,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && (inputs.lane == 'full' || inputs.lane == 'history')
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    environment: aws-durable-proof
+    environment: aws-durable-diagnostics
     env:
       PROOF_REGION: ${{ vars.AWS_DURABLE_PROOF_REGION || 'us-east-2' }}
       PROOF_LANE: ${{ inputs.lane }}
@@ -147,7 +147,7 @@ jobs:
             exit 1
           fi
           if [[ -z "$ROLE_ARN" ]]; then
-            echo "::error::Set AWS_DURABLE_PROOF_ROLE_ARN in the aws-durable-proof environment"
+            echo "::error::Set AWS_DURABLE_PROOF_ROLE_ARN in the aws-durable-diagnostics environment"
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -45,6 +45,22 @@ sam validate --template-file aws-durable-proof/template.yaml --region us-east-2
 (cd aws-durable-proof && sam validate --lint --template-file template.yaml --region us-east-2)
 ```
 
+## Manual diagnostics in GitHub Actions
+
+The `history` and `full` lanes use the `aws-durable-diagnostics` environment.
+Allow deployments from `main` only and configure these environment variables
+from the diagnostics Terraform outputs:
+
+- `AWS_DURABLE_PROOF_ROLE_ARN`
+- `AWS_DURABLE_PROOF_CLOUDFORMATION_ROLE_ARN`
+- `AWS_DURABLE_PROOF_EXECUTION_BOUNDARY_ARN`
+
+The planned target is account `207828640987` in `us-east-2`. Wait for the
+separately reviewed IAM provisioning before manually dispatching a diagnostic.
+Both lanes retain their JSON evidence and the Failsafe test report.
+The five event-source mappings carry `purpose=aws-durable-proof` and the proof
+identity explicitly so their IAM ownership conditions can be evaluated.
+
 ## Disposable deployment
 
 Use a non-root deployment identity. The runner rejects account-root credentials before any mutation, optionally assumes a supplied least-privilege role, builds with the isolated Maven repository, uploads the artifacts, deploys the stack, runs the fast fault lane, writes `proof-report.json`, and deletes the stack and artifact bucket on success or failure by default. Pass `--keep-on-success` or `--keep-on-failure` only when the corresponding resources must remain available for diagnosis.

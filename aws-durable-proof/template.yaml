@@ -484,14 +484,6 @@ Resources:
         Variables:
           <<: *ActionEnvironment
           QUARKUS_LAMBDA_HANDLER: proof-work-item
-      Events:
-        WorkRecords:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt WorkQueue.Arn
-            BatchSize: 1
-            FunctionResponseTypes: [ReportBatchItemFailures]
-            ScalingConfig: {MaximumConcurrency: 16}
 
   AwaitCompletionFunction:
     <<: *ActionFunction
@@ -502,13 +494,6 @@ Resources:
         Variables:
           <<: *ActionEnvironment
           QUARKUS_LAMBDA_HANDLER: proof-await-completion
-      Events:
-        AwaitCompletions:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt AwaitCompletionQueue.Arn
-            BatchSize: 1
-            FunctionResponseTypes: [ReportBatchItemFailures]
 
   TransitionWorkerFunction:
     <<: *ActionFunction
@@ -520,14 +505,6 @@ Resources:
         Variables:
           <<: *ActionEnvironment
           QUARKUS_LAMBDA_HANDLER: proof-transition-worker
-      Events:
-        TransitionRecords:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt TransitionRequestQueue.Arn
-            BatchSize: 1
-            FunctionResponseTypes: [ReportBatchItemFailures]
-            ScalingConfig: {MaximumConcurrency: 16}
 
   AwaitWakeupFunction:
     <<: *ActionFunction
@@ -539,33 +516,77 @@ Resources:
         Variables:
           <<: *ActionEnvironment
           QUARKUS_LAMBDA_HANDLER: proof-await-wakeup
-      Events:
-        AwaitStateChanges:
-          Type: DynamoDB
-          Properties:
-            Stream: !GetAtt AwaitInteractionTable.StreamArn
-            StartingPosition: TRIM_HORIZON
-            BatchSize: 10
-            BisectBatchOnFunctionError: true
-            MaximumRecordAgeInSeconds: 3600
-            MaximumRetryAttempts: 3
-            FunctionResponseTypes: [ReportBatchItemFailures]
-            DestinationConfig:
-              OnFailure:
-                Destination: !GetAtt StreamFailureQueue.Arn
-        BindingChanges:
-          Type: DynamoDB
-          Properties:
-            Stream: !GetAtt BindingTable.StreamArn
-            StartingPosition: TRIM_HORIZON
-            BatchSize: 10
-            BisectBatchOnFunctionError: true
-            MaximumRecordAgeInSeconds: 3600
-            MaximumRetryAttempts: 3
-            FunctionResponseTypes: [ReportBatchItemFailures]
-            DestinationConfig:
-              OnFailure:
-                Destination: !GetAtt StreamFailureQueue.Arn
+
+  WorkItemFunctionWorkRecords:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref WorkItemFunction
+      EventSourceArn: !GetAtt WorkQueue.Arn
+      BatchSize: 1
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      Tags:
+        - {Key: purpose, Value: aws-durable-proof}
+        - {Key: proof, Value: !Ref ProofName}
+      ScalingConfig: {MaximumConcurrency: 16}
+
+  AwaitCompletionFunctionAwaitCompletions:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref AwaitCompletionFunction
+      EventSourceArn: !GetAtt AwaitCompletionQueue.Arn
+      BatchSize: 1
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      Tags:
+        - {Key: purpose, Value: aws-durable-proof}
+        - {Key: proof, Value: !Ref ProofName}
+
+  TransitionWorkerFunctionTransitionRecords:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref TransitionWorkerFunction
+      EventSourceArn: !GetAtt TransitionRequestQueue.Arn
+      BatchSize: 1
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      Tags:
+        - {Key: purpose, Value: aws-durable-proof}
+        - {Key: proof, Value: !Ref ProofName}
+      ScalingConfig: {MaximumConcurrency: 16}
+
+  AwaitWakeupFunctionAwaitStateChanges:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref AwaitWakeupFunction
+      EventSourceArn: !GetAtt AwaitInteractionTable.StreamArn
+      BatchSize: 10
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      Tags:
+        - {Key: purpose, Value: aws-durable-proof}
+        - {Key: proof, Value: !Ref ProofName}
+      StartingPosition: TRIM_HORIZON
+      BisectBatchOnFunctionError: true
+      MaximumRecordAgeInSeconds: 3600
+      MaximumRetryAttempts: 3
+      DestinationConfig:
+        OnFailure:
+          Destination: !GetAtt StreamFailureQueue.Arn
+
+  AwaitWakeupFunctionBindingChanges:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref AwaitWakeupFunction
+      EventSourceArn: !GetAtt BindingTable.StreamArn
+      BatchSize: 10
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      Tags:
+        - {Key: purpose, Value: aws-durable-proof}
+        - {Key: proof, Value: !Ref ProofName}
+      StartingPosition: TRIM_HORIZON
+      BisectBatchOnFunctionError: true
+      MaximumRecordAgeInSeconds: 3600
+      MaximumRetryAttempts: 3
+      DestinationConfig:
+        OnFailure:
+          Destination: !GetAtt StreamFailureQueue.Arn
 
   AwaitReconcilerFunction:
     <<: *ActionFunction
