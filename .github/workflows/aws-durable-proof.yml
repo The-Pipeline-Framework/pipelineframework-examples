@@ -126,7 +126,10 @@ jobs:
     timeout-minutes: 120
     environment: aws-durable-proof
     env:
-      PROOF_REGION: ${{ vars.AWS_DURABLE_PROOF_REGION || 'us-east-2' }}
+      PROOF_ACCOUNT_ID: '207828640987'
+      PROOF_REGION: us-east-2
+      PROOF_CLOUDFORMATION_ROLE: ${{ vars.AWS_DURABLE_PROOF_CLOUDFORMATION_ROLE_ARN }}
+      PROOF_EXECUTION_BOUNDARY: ${{ vars.AWS_DURABLE_PROOF_EXECUTION_BOUNDARY_ARN }}
       PROOF_LANE: ${{ inputs.lane }}
       PROOF_STACK: tpf-durable-${{ github.run_id }}-${{ github.run_attempt }}
       PROOF_TEST_REPORT: aws-durable-proof/fault-tests/target/failsafe-reports/TEST-org.pipelineframework.awsproof.DeployedAwsDurableProofIT.xml
@@ -146,8 +149,16 @@ jobs:
             echo "::error::AWS Durable diagnostics must run from main"
             exit 1
           fi
-          if [[ -z "$ROLE_ARN" ]]; then
-            echo "::error::Set AWS_DURABLE_PROOF_ROLE_ARN in the aws-durable-proof environment"
+          if [[ "$ROLE_ARN" != "arn:aws:iam::$PROOF_ACCOUNT_ID:role/tpf-examples-durable-diagnostics" ]]; then
+            echo "::error::Set AWS_DURABLE_PROOF_ROLE_ARN to the Examples diagnostics role in account $PROOF_ACCOUNT_ID"
+            exit 1
+          fi
+          if [[ "$PROOF_CLOUDFORMATION_ROLE" != "arn:aws:iam::$PROOF_ACCOUNT_ID:role/tpf-examples-durable-diagnostics-cfn" ]]; then
+            echo "::error::Set AWS_DURABLE_PROOF_CLOUDFORMATION_ROLE_ARN to the diagnostics CloudFormation role"
+            exit 1
+          fi
+          if [[ "$PROOF_EXECUTION_BOUNDARY" != "arn:aws:iam::$PROOF_ACCOUNT_ID:policy/tpf-examples-durable-diagnostics-workload" ]]; then
+            echo "::error::Set AWS_DURABLE_PROOF_EXECUTION_BOUNDARY_ARN to the diagnostics workload permissions boundary"
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -164,7 +175,10 @@ jobs:
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
         with:
           role-to-assume: ${{ vars.AWS_DURABLE_PROOF_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_DURABLE_PROOF_REGION || 'us-east-2' }}
+          aws-region: ${{ env.PROOF_REGION }}
+          allowed-account-ids: ${{ env.PROOF_ACCOUNT_ID }}
+          role-session-name: tpf-durable-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 7200
       - name: Run disposable historical diagnostics (not production promotion)
         run: |
           lane_args=()
@@ -176,6 +190,8 @@ jobs:
           ./aws-durable-proof/scripts/run-deployed-proof.sh \
             --region "$PROOF_REGION" \
             --stack-name "$PROOF_STACK" \
+            --cloudformation-role-arn "$PROOF_CLOUDFORMATION_ROLE" \
+            --execution-boundary-arn "$PROOF_EXECUTION_BOUNDARY" \
             "${lane_args[@]}"
       - name: Require passing diagnostic evidence
         env:
