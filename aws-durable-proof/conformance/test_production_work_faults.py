@@ -207,3 +207,32 @@ class WorkFaultTest(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+
+class LiteralWorkTemplateTest(unittest.TestCase):
+    def source(self, handler="WorkHandler"):
+        return (f"Parameters:\n  WorkHandler: {{Type: String, Default: aws-durable-work-item}}\n"
+                f"Resources:\n  WorkFunction:\n    Type: AWS::Serverless::Function\n    Properties:\n"
+                f"      Environment:\n        Variables:\n"
+                f"          QUARKUS_LAMBDA_HANDLER: !Ref {handler}\n"
+                f"          OTHER: preserved\n"
+                f"  OtherFunction:\n    Type: AWS::Serverless::Function\nOutputs:\n").encode()
+
+    def test_literal_and_quoted_work_handlers_preserve_provenance(self):
+        for handler in ("WorkHandler", "'WorkHandler'", '"WorkHandler"'):
+            source = self.source(handler)
+            result = WORK.derived_template(source)
+            self.assertIn(b"          OTHER: preserved\n", result)
+            self.assertIn(b"          TPF_CONFORMANCE_WORK_FAULT_TABLE: !Ref ConformanceWorkFaultTable\n", result)
+            self.assertIn(hashlib.sha256(source).hexdigest().encode(), result)
+
+    def test_missing_duplicate_and_wrong_scope_handlers_fail_closed(self):
+        source = self.source()
+        declaration = b"          QUARKUS_LAMBDA_HANDLER: !Ref WorkHandler\n"
+        for invalid in (source.replace(declaration, b""),
+                        source.replace(declaration, declaration * 2),
+                        source.replace(b"        Variables:\n", b"        WrongScope:\n"),
+                        source.replace(declaration, declaration.replace(b"WorkHandler", b"OtherHandler")),
+                        source.replace(b"          OTHER:", b"          TPF_CONFORMANCE_WORK_FAULT_TABLE:")):
+            with self.subTest(invalid=invalid), self.assertRaises(AssertionError):
+                WORK.derived_template(invalid)

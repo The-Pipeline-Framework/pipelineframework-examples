@@ -8,6 +8,7 @@ from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 SPEC = importlib.util.spec_from_file_location("work_resource_faults", Path(__file__).with_name("production-resource-faults.py"))
@@ -35,8 +36,35 @@ def derived_template(source):
         text = text.replace(before, after, 1)
     replace_once("  WorkHandler: {Type: String, Default: aws-durable-work-item}",
                  "  WorkHandler: {Type: String, Default: " + HANDLER + ", AllowedValues: [" + HANDLER + "]}")
-    replace_once("Variables: {<<: *ActionEnvironment, QUARKUS_LAMBDA_HANDLER: !Ref WorkHandler}",
-                 "Variables: {<<: *ActionEnvironment, QUARKUS_LAMBDA_HANDLER: !Ref WorkHandler, TPF_CONFORMANCE_WORK_FAULT_TABLE: !Ref ConformanceWorkFaultTable}")
+    legacy = "Variables: {<<: *ActionEnvironment, QUARKUS_LAMBDA_HANDLER: !Ref WorkHandler}"
+    fault_entry = "TPF_CONFORMANCE_WORK_FAULT_TABLE: !Ref ConformanceWorkFaultTable"
+    if legacy in text:
+        replace_once(legacy, legacy[:-1] + ", " + fault_entry + "}")
+    else:
+        # Keep the insertion inside the production WorkFunction's Variables,
+        # accepting the literal form emitted by current deployment artifacts.
+        resources = list(re.finditer(r"(?m)^  WorkFunction:\n", text))
+        require(len(resources) == 1, "unique production WorkFunction required")
+        start = resources[0].end()
+        following = re.search(r"(?m)^  \S", text[start:])
+        require(following is not None, "production work resource boundary missing")
+        end = start + following.start()
+        body = text[start:end]
+        headers = list(re.finditer(r"(?m)^      Environment:\n        Variables:\n", body))
+        require(len(headers) == 1 and body.count("      Environment:") == 1,
+                "unique literal work environment required")
+        variables_start = headers[0].end()
+        following_field = re.search(r"(?m)^ {0,8}\S", body[variables_start:])
+        variables_end = variables_start + following_field.start() if following_field else len(body)
+        declarations = list(re.finditer(r"(?m)^ +QUARKUS_LAMBDA_HANDLER:[^\n]*\n", body))
+        require(len(declarations) == 1 and fault_entry.split(":")[0] not in body,
+                "unique production work handler without existing fault wiring required")
+        handler = declarations[0]
+        require(variables_start <= handler.start() < handler.end() <= variables_end
+                and re.fullmatch(r"""          QUARKUS_LAMBDA_HANDLER: !Ref (?:WorkHandler|'WorkHandler'|"WorkHandler")\n""", handler.group()),
+                "exact work handler required inside Environment.Variables")
+        body = body[:handler.end()] + "          " + fault_entry + "\n" + body[handler.end():]
+        text = text[:start] + body + text[end:]
     replace_once("Resources:\n", "Resources:\n  ConformanceWorkFaultTable:\n    Type: AWS::DynamoDB::Table\n    Properties:\n      BillingMode: PAY_PER_REQUEST\n      AttributeDefinitions: [{AttributeName: fault_id, AttributeType: S}]\n      KeySchema: [{AttributeName: fault_id, KeyType: HASH}]\n      SSESpecification: {SSEEnabled: true}\n  ConformanceWorkFaultAccess:\n    Type: AWS::IAM::Policy\n    Properties:\n      PolicyName: conformance-work-fault\n      Roles: [!Ref WorkerRole]\n      PolicyDocument:\n        Version: '2012-10-17'\n        Statement:\n          - Effect: Allow\n            Action: [dynamodb:GetItem, dynamodb:PutItem]\n            Resource: !GetAtt ConformanceWorkFaultTable.Arn\n")
     digest = hashlib.sha256(source).hexdigest()
     replace_once("Outputs:\n", "Outputs:\n  ConformanceWorkFaultManifest:\n    Value: !Sub |\n      {\"schemaVersion\":1,\"fixtureOnly\":true,\"handler\":\"" + HANDLER + "\",\"delegate\":\"" + DELEGATE + "\",\"workItemType\":\"" + WORK_TYPE + "\",\"workVersionArn\":\"${WorkVersion}\",\"faultTable\":\"${ConformanceWorkFaultTable}\",\"productionTemplateSha256\":\"" + digest + "\"}\n")
