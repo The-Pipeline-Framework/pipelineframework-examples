@@ -11,6 +11,11 @@ FILES = ['projection.json', 'models.ts', 'models.py', 'SHA256SUMS',
          'java-reference.json', 'java-reference.sha256']
 
 
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compiler-repo', type=Path, required=True)
@@ -25,14 +30,16 @@ def main():
     for path in source_paths:
         fingerprint.update(path.name.encode() + b'\0' + path.read_bytes() + b'\0')
     projection = json.loads((outputs / 'projection.json').read_bytes())
-    assert fingerprint.hexdigest() == projection['provenance']['generatorTreeSha256'], 'producer sources changed; regenerate first'
+    require(fingerprint.hexdigest() == projection['provenance']['generatorTreeSha256'],
+            'producer sources changed; regenerate first')
     fixtures = {'dslSha256': 'pipeline.yaml', 'bindingsSha256': 'native-bindings.json'}
     for digest_key, name in fixtures.items():
-        assert hashlib.sha256((source / 'fixtures' / name).read_bytes()).hexdigest() == projection['provenance'][digest_key]
-    assert (source / 'fixtures/scenarios.json').read_bytes() == (ROOT / 'scenarios.json').read_bytes()
+        require(hashlib.sha256((source / 'fixtures' / name).read_bytes()).hexdigest()
+                == projection['provenance'][digest_key], f'compiler input drift: {name}')
+    require((source / 'fixtures/scenarios.json').read_bytes() == (ROOT / 'scenarios.json').read_bytes(),
+            'scenario corpus differs from compiler fixture')
     revision = subprocess.check_output(['git', '-C', str(compiler), 'rev-parse', 'HEAD'], text=True).strip()
-    status = subprocess.check_output(['git', '-C', str(compiler), 'status', '--porcelain', '--',
-                                      'conformance/polyglot-projection-v0'], text=True).strip()
+    status = subprocess.check_output(['git', '-C', str(compiler), 'status', '--porcelain'], text=True).strip()
     provenance = {
         'sourceRepository': 'https://github.com/The-Pipeline-Framework/pipelineframework-compiler',
         'sourceRevision': revision,
@@ -46,12 +53,14 @@ def main():
     destination.mkdir(exist_ok=True)
     for name in FILES:
         if args.check:
-            assert (destination / name).read_bytes() == (outputs / name).read_bytes(), f'compiler output drift: {name}'
+            require((destination / name).read_bytes() == (outputs / name).read_bytes(),
+                    f'compiler output drift: {name}')
         else:
             shutil.copyfile(outputs / name, destination / name)
     provenance_file = ROOT / 'PROVENANCE.json'
     if args.check:
-        assert json.loads(provenance_file.read_text()) == provenance, 'source provenance changed; recapture exact producer outputs'
+        require(json.loads(provenance_file.read_text()) == provenance,
+                'source provenance changed; recapture exact producer outputs')
     else:
         provenance_file.write_text(json.dumps(provenance, indent=2) + '\n')
     print('FIXTURE_MATCHES_COMPILER' if args.check else 'FIXTURE_COPIED_FROM_COMPILER')

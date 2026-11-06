@@ -35,7 +35,9 @@ python3 -B journey.py
 
 `npm test` runs the actual pinned TypeScript 5.9.3 checker, requires five specific
 negative type diagnostics, runs Node and Python boundary tests, and compares each
-language's actual journey report with the pinned Java research reference. Merely
+language's actual journey report with the pinned Java research reference. Focused
+contributor-tool tests require these evidence checks to reject drift under optimized
+Python as well. Merely
 running `.ts` with Node strips types; **the separate `tsc` check supplies semantic
 type diagnostics**. Python imports generated `TypedDict` declarations and performs
 runtime validation; no Python static checker was exercised.
@@ -131,10 +133,10 @@ output here with **the same business functions**:
 # In compiler checkout:
 python3 conformance/polyglot-projection-v0/run.py --projection-only \
   --dsl conformance/polyglot-projection-v0/fixtures/changed-order.yaml \
-  --output target/polyglot-projection-reordered
+  --output conformance/polyglot-projection-v0/generated-changed-order
 
 # In this directory; 3 doubles to 6, adds 1, subtracts 3, producing 4:
-node run_once.mjs /absolute/path/to/compiler/target/polyglot-projection-reordered 3 4
+node run_once.mjs /absolute/path/to/compiler/conformance/polyglot-projection-v0/generated-changed-order 3 4
 ```
 
 The baseline `journey.mjs`/`journey.py` corpus expects A→B→C and result 5. `run_once.mjs`

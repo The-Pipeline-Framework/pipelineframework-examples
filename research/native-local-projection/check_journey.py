@@ -12,23 +12,30 @@ import sys
 ROOT = Path(__file__).resolve().parent
 
 
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
 def main():
     generated = ROOT / 'generated'
     provenance = json.loads((ROOT / 'PROVENANCE.json').read_text())
     for name, digest in provenance['artifactSha256'].items():
-        assert hashlib.sha256((generated / name).read_bytes()).hexdigest() == digest, f'provenance drift: {name}'
+        require(hashlib.sha256((generated / name).read_bytes()).hexdigest() == digest,
+                f'provenance drift: {name}')
     reference_bytes = (generated / 'java-reference.json').read_bytes()
     reference_digest = (generated / 'java-reference.sha256').read_text().split()[0]
-    assert hashlib.sha256(reference_bytes).hexdigest() == reference_digest
+    require(hashlib.sha256(reference_bytes).hexdigest() == reference_digest,
+            'Java reference digest mismatch')
     reference = json.loads(reference_bytes)
-    assert reference.pop('language') == 'java'
+    require(reference.pop('language', None) == 'java', 'expected Java reference language')
     for language, command in [('node', ['node', str(ROOT / 'journey.mjs')]),
                                ('python', [sys.executable, '-B', str(ROOT / 'journey.py')])]:
         result = subprocess.run(command, cwd=ROOT, check=True, capture_output=True,
                                 text=True, timeout=30)
         actual = json.loads(result.stdout)
-        assert actual.pop('language') == language
-        assert actual == reference, f'{language} disagrees with pinned Java reference'
+        require(actual.pop('language', None) == language, f'expected {language} report language')
+        require(actual == reference, f'{language} disagrees with pinned Java reference')
         print(f'JAVA_REFERENCE_MATCH:{language}:{len(actual["cases"])}-cases:{len(actual["contexts"])}-contexts')
 
 

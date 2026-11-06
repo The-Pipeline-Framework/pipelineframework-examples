@@ -11,13 +11,13 @@ belongs to the lead and `projection_gate_review`, not the shell author.
 Examples baseline: `c0af82a11d7ed9d7e6cf6d41dc05c4865f026f93`.
 Exact producer revision/source fingerprints and generated artifact inventory live in
 [PROVENANCE.json](PROVENANCE.json). Compiler-owned source fingerprint:
-`856386df2856b2ad95d4e1ab43775273731ada8ac0de6b0cceb8f356cba94fa7`.
+`7cddd1e0f5db40ed04d02899c6ec0aac7b51ce0119f5f320ef999a69ac4e52f7`.
 Baseline projection SHA-256:
-`aeef5a95f098d5f8af294b49feb6cf0a8b04db5fad0d8222d0a608ea6ea7d39b`.
+`fc8f31fd3b89b7cf85cfa50769d6775a372a8373c98405f2551456531a7e047a`.
 Shared scenario SHA-256:
 `aa3da5ea64b045d4dc818ce9daa5b357b074894e2183dbaa12ae8342d23d2033`.
 Java research reference SHA-256:
-`78f8abc6322d5e346ee069e6ec0f48204b96ad8e86263b0cb4e2985fe5c0db6a`.
+`2f14a2bd88bf01dd93a353c4e7e5a623570dcab20cf6ae4d90c66a74cea50412`.
 
 Run from this directory:
 
@@ -47,7 +47,7 @@ contributor regeneration separately uses released Java DSL/model artifacts.
 | P8 Provenance/gaps | Artifact/source/dependency hashes, fixed scenarios and CI invocation committed; unchanged authored functions consume genuine changed-DSL output | Full changed-project generation without local Java remains GAP |
 
 The real changed-order artifact digest is
-`ce4aa482c62bcdb36fba74655744cc40fe50f2f76b40dda8b29cf7e3db760b7d`.
+`4636b5ee5895c5ab13b9e4a6a610bd9647e399a559e63f9c44325bfea1e354b1`.
 `run_once.mjs` read that exact compiler-generated output and reported step order
 `[B,A,C]`, result `{value:4}`, counts `{B:1,A:1,C:1}`. It did not mutate or regenerate
 its own artifact. Baseline corpus results remain 5, so a baseline-only hardcoded
@@ -89,3 +89,29 @@ contains unique object keys and admission verifies its exact trusted bytes. A di
 is integrity relative to a trusted inventory, not producer authentication. Streaming,
 Connectors, durable Await, distributed execution, Query/Command semantics, release
 signing and no-local-JVM regeneration remain separate required gates.
+
+## PR feedback checks
+
+Feedback on examples PR #35 was verified against candidate
+`169d8c5ba0338f338f9493122c7e9986090f3dee`. The focused follow-up passed nine Node
+checks and ten Python checks (eight shell checks plus two contributor-tool checks),
+as well as the unchanged positive TypeScript check, five required diagnostics and
+exact seven-case/two-context Java report comparison.
+
+The added cases reject a comma-joined substitute for the two required context keys,
+map extreme numeric/parser-recursion exceptions into explicit diagnostics, and
+exercise cancellation after C returns alongside an uncancelled result-5 control.
+Actual malformed JSON and extreme numeric inputs exercise native parser failures.
+Deterministically injected Python `RecursionError` and Node `RangeError` verify
+exception-to-diagnostic mapping without allocating arbitrarily deep inputs or
+claiming engine-dependent parser-depth qualification.
+
+The source-origin and Java-comparison tools now use explicit validation, preserving
+checks under `python3 -O` and `PYTHONOPTIMIZE`. Optimized-process regression checks
+require successful unchanged controls, rejection of altered copied output and
+provenance, and rejection of a deliberately wrong Java expected result even after
+its integrity hashes are updated. The origin-tool regression substitutes only Git
+metadata in an isolated synthetic producer fixture; source/output comparisons and
+the real command-line tool execute unchanged. This does not add compiler evidence.
+`sourceModifiedAtCapture` now measures the entire compiler checkout, matching its
+description. README and evidence changed-order commands use the same output folder.

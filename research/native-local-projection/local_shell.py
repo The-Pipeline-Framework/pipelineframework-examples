@@ -34,15 +34,18 @@ def digest(value):
 
 def parse_projection(raw):
     def integer_decimal(token):
-        number = Decimal(token)
-        require(number == number.to_integral_value() and abs(number) <= 2**53 - 1,
-                'INVALID_NUMBER')
-        return int(number)
+        try:
+            number = Decimal(token)
+            require(number == number.to_integral_value() and abs(number) <= 2**53 - 1,
+                    'INVALID_NUMBER')
+            return int(number)
+        except ArithmeticError as error:
+            raise Diagnostic('INVALID_NUMBER') from error
 
     try:
         return json.loads(raw.decode('utf-8'), parse_float=integer_decimal,
                           parse_constant=lambda _: require(False, 'INVALID_NUMBER'))
-    except (ValueError, UnicodeError) as error:
+    except (ValueError, UnicodeError, RecursionError) as error:
         raise Diagnostic('INVALID_JSON') from error
 
 

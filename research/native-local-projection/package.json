@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --project tsconfig.json",
-    "test": "npm run typecheck && python3 check_types.py && node --test test_local.mjs && python3 -B -m unittest test_local.py && python3 check_journey.py"
+    "test": "npm run typecheck && python3 check_types.py && node --test test_local.mjs && python3 -B -m unittest test_local.py test_tools.py && python3 check_journey.py"
   },
   "devDependencies": {
     "typescript": "5.9.3"

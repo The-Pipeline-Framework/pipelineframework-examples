@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import unittest
+from unittest import mock
 from business import handlers
 from journey import artifacts, run_journey
 from local_shell import Diagnostic, Failure, admit_projection, execute
@@ -158,6 +159,40 @@ class LocalProof(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['outcome'], 'CANCELLED')
         self.assertEqual(result['attempts'], {'A': 1, 'B': 0, 'C': 0})
         self.assertFalse(any(e['kind'] == 'invoke' and e['stepId'] == 'B' for e in result['trace']))
+
+
+    async def test_number_and_parser_exception_diagnostics(self):
+        for raw, code in [
+            (b'{"schemaVersion":1e9999999999999999999999999999999999999999}', 'INVALID_NUMBER'),
+            (b'{', 'INVALID_JSON'),
+        ]:
+            with self.subTest(code=code), self.diagnostic(code):
+                admit_projection(raw, hashlib.sha256(raw).hexdigest(), handlers)
+        # Qualify exception mapping without depending on a particular Python
+        # version's recursion limit or allocating adversarial nested structures.
+        with mock.patch('local_shell.json.loads', side_effect=RecursionError('seeded parser failure')):
+            with self.diagnostic('INVALID_JSON'):
+                admit_projection(PROJECTION, DIGEST, handlers)
+
+    async def test_cancellation_after_final_return_and_uncancelled_control(self):
+        for should_cancel in [False, True]:
+            cancel = asyncio.Event()
+
+            async def after_return(step):
+                if step == 'C' and should_cancel:
+                    cancel.set()
+
+            result = await execute(admission(), {'value': 3}, CONTEXT,
+                                   cancelled=cancel.is_set, after_return=after_return)
+            self.assertEqual(result['attempts'], {'A': 1, 'B': 1, 'C': 1})
+            self.assertTrue(any(e['kind'] == 'return' and e['stepId'] == 'C' for e in result['trace']))
+            if should_cancel:
+                self.assertEqual(result['outcome'], 'CANCELLED')
+                self.assertNotIn('result', result)
+                self.assertEqual(result['trace'][-1], {'kind': 'cancelled', 'stepId': 'C', **CONTEXT})
+            else:
+                self.assertEqual(result['outcome'], 'COMPLETED')
+                self.assertEqual(result['result'], {'value': 5})
 
 
 if __name__ == '__main__':

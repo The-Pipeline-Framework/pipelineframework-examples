@@ -7,8 +7,9 @@ export class Diagnostic extends Error {
 }
 const reject = code => { throw new Diagnostic(code); };
 const keys = (value, names, code) => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)
-      || Object.keys(value).sort().join(',') !== [...names].sort().join(',')) reject(code);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) reject(code);
+  const actual = Object.keys(value);
+  if (actual.length !== names.length || !names.every(name => actual.includes(name))) reject(code);
 };
 const same = (actual, expected, code) => {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) reject(code);

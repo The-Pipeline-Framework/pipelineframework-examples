@@ -118,3 +118,49 @@ test('cancellation wins at an explicit A-return barrier before B can start', asy
   assert.deepEqual(result.attempts, {A: 1, B: 0, C: 0});
   assert.equal(result.trace.some(e => e.kind === 'invoke' && e.stepId === 'B'), false);
 });
+
+test('comma-joined context names cannot replace individual required keys', async () => {
+  const invoked = [];
+  const functions = {...handlers, a: async (...args) => { invoked.push('a'); return handlers.a(...args); }};
+  for (const invalid of [{'executionId,traceId': 'x'}, {executionId: 'x', other: 'y'}]) {
+    await assert.rejects(execute(admission(functions), {value: 3}, invalid), diagnostic('INVALID_CONTEXT'));
+  }
+  assert.deepEqual(invoked, []);
+});
+
+test('numeric and parser failures produce explicit diagnostics', () => {
+  for (const [source, code] of [
+    ['{"schemaVersion":1e9999999999999999999999999999999999999999}', 'INVALID_NUMBER'],
+    ['{', 'INVALID_JSON'],
+  ]) {
+    const raw = Buffer.from(source);
+    assert.throws(() => admitProjection(raw, sha256(raw), handlers), diagnostic(code));
+  }
+  // Seed the parser's nesting failure deterministically; arbitrary JSON depth is
+  // outside the trusted compiler-output boundary and varies by engine/version.
+  const parse = JSON.parse;
+  try {
+    JSON.parse = () => { throw new RangeError('seeded parser recursion failure'); };
+    assert.throws(() => admitProjection(projectionBytes, digest, handlers), diagnostic('INVALID_JSON'));
+  } finally {
+    JSON.parse = parse;
+  }
+});
+
+test('cancellation after C returns suppresses the result; the uncancelled control completes', async () => {
+  for (const cancel of [false, true]) {
+    const controller = new AbortController();
+    const result = await execute(admission(), {value: 3}, context, {signal: controller.signal,
+      afterReturn: async step => { if (step === 'C' && cancel) controller.abort(); }});
+    assert.deepEqual(result.attempts, {A: 1, B: 1, C: 1});
+    assert.ok(result.trace.some(e => e.kind === 'return' && e.stepId === 'C'));
+    if (cancel) {
+      assert.equal(result.outcome, 'CANCELLED');
+      assert.equal(Object.hasOwn(result, 'result'), false);
+      assert.deepEqual(result.trace.at(-1), {kind: 'cancelled', stepId: 'C', ...context});
+    } else {
+      assert.equal(result.outcome, 'COMPLETED');
+      assert.deepEqual(result.result, {value: 5});
+    }
+  }
+});
