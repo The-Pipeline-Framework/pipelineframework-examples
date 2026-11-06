@@ -1,0 +1,22 @@
+{
+  "sourceRepository": "https://github.com/The-Pipeline-Framework/pipelineframework-compiler",
+  "sourceRevision": "9afd890cf9865f3cdbd017c58abaea13562ffafb",
+  "sourceModifiedAtCapture": false,
+  "sourceDirectory": "conformance/polyglot-projection-v0",
+  "generatorTreeSha256": "856386df2856b2ad95d4e1ab43775273731ada8ac0de6b0cceb8f356cba94fa7",
+  "sourceFileSha256": {
+    "JavaReferenceProbe.java": "7657dc77b6130df9c87d3035c4aea5af1ba13bfa73af4ad016a229f303572fa0",
+    "NativeModelEmitter.java": "be275b068c0c436207d18c2aff91f9c8cdacab7dc6cbc7522ef4c7380160edd3",
+    "PolyglotProjectionProbe.java": "6c2d2a8dcb8cc473780e69d010884c7dbcb7da412f0cde48aacb6237a368cc79",
+    "dependencies.pom.xml": "242c21832dc8752422d9c14ff116308a697ca1460311ffe47ffb5a2288bad259",
+    "run.py": "2d0ebab84915c929a5fd1abf1f403541a9d8e775bee37d70335189116368a8bb"
+  },
+  "artifactSha256": {
+    "projection.json": "aeef5a95f098d5f8af294b49feb6cf0a8b04db5fad0d8222d0a608ea6ea7d39b",
+    "models.ts": "e797e841f4c4986cd7997cc30eaa37239fdb7685695e56db7e5183a643474a98",
+    "models.py": "b7abd209965ab224536f6e1ade5c282dfe29aa7521ee1f1b9d852c5e83d2dc53",
+    "SHA256SUMS": "33552d8e04eea83c60386a2fd6f777338f48ccd757297d93a24f001b5b445ed2",
+    "java-reference.json": "78f8abc6322d5e346ee069e6ec0f48204b96ad8e86263b0cb4e2985fe5c0db6a",
+    "java-reference.sha256": "bccb2584571f41e5c69e7757aba9c031ce879d869b06119920fc852773fbbd75"
+  }
+}
