@@ -124,7 +124,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && (inputs.lane == 'full' || inputs.lane == 'history')
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    environment: aws-durable-proof
+    environment: aws-durable-diagnostics
     env:
       PROOF_ACCOUNT_ID: '207828640987'
       PROOF_REGION: us-east-2
