@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "exactOptionalPropertyTypes": true
+  },
+  "files": [
+    "business.ts",
+    "generated/models.ts",
+    "type-positive.ts"
+  ]
+}
