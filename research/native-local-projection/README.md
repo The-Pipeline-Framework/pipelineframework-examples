@@ -151,8 +151,8 @@ later. Run from this directory:
 python3 -B runtime-policy/check_runtime_policy.py
 ```
 
-The check resolves the pinned Java 26.11.1 artifacts into this worktree's Maven
-cache, verifies the JARs and fixture digests, and runs the released
+The check resolves the pinned TPF 26.11.1 runtime and runtime-core artifacts into
+this worktree's Maven cache, verifies the JARs and fixture digests, and runs the released
 `PipelineRunnerCore` and `StepOneToOne` through the unary executor. Java, Node, and
 Python execute the same seven baseline cases and two overlapping fixture contexts.
 A second compiler-emitted projection gives B one retry. Its transient B failure

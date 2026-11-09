@@ -18,5 +18,10 @@
       <artifactId>pipelineframework-runtime-core</artifactId>
       <version>26.11.1</version>
     </dependency>
+    <dependency>
+      <groupId>io.smallrye.reactive</groupId>
+      <artifactId>mutiny</artifactId>
+      <version>3.3.0</version>
+    </dependency>
   </dependencies>
 </project>
