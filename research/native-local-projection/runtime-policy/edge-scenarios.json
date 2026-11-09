@@ -1,0 +1,43 @@
+{
+  "cases": [
+    {
+      "id": "zero-B-retry",
+      "projection": "baseline",
+      "fault": {"step": "B", "code": "TRANSIENT", "times": 1},
+      "java": {"outcome": "FAILED", "attempts": {"A": 1, "B": 1, "C": 0}, "failureCode": "TRANSIENT", "javaFailureClass": "org.pipelineframework.ReleasedRuntimeProbe$TransientFault"},
+      "native": {"outcome": "FAILED", "attempts": {"A": 1, "B": 1, "C": 0}, "failureCode": "TRANSIENT"}
+    },
+    {
+      "id": "one-B-retry",
+      "projection": "downstream-retry",
+      "fault": {"step": "B", "code": "TRANSIENT", "times": 1},
+      "java": {"outcome": "COMPLETED", "attempts": {"A": 1, "B": 2, "C": 1}, "result": {"value": 5}},
+      "native": {"outcome": "COMPLETED", "attempts": {"A": 1, "B": 2, "C": 1}, "result": {"value": 5}}
+    },
+    {
+      "id": "unknown-A",
+      "projection": "baseline",
+      "fault": {"step": "A", "code": "UNKNOWN", "times": 3},
+      "java": {"outcome": "FAILED", "attempts": {"A": 3, "B": 0, "C": 0}, "javaFailureClass": "java.lang.IllegalStateException"},
+      "native": {"diagnostic": "UNKNOWN_FAILURE", "attempts": {"A": 1, "B": 0, "C": 0}}
+    },
+    {
+      "id": "recovery-A",
+      "projection": "baseline",
+      "fault": {"step": "A", "code": "BUSINESS_REJECTION", "times": 1},
+      "recoverOnFailure": true,
+      "java": {
+        "range": {"outcome": "COMPLETED_NULL", "attempts": {"A": 1, "B": 0, "C": 0}},
+        "full": {"outcome": "COMPLETED_NULL", "attempts": {"A": 1, "B": 0, "C": 0}}
+      },
+      "native": {"diagnostic": "UNSUPPORTED_STEP", "attempts": {"A": 0, "B": 0, "C": 0}}
+    },
+    {
+      "id": "null-C",
+      "projection": "baseline",
+      "fault": {"step": "C", "code": "NULL_RESULT", "times": 1},
+      "java": {"outcome": "COMPLETED_NULL", "attempts": {"A": 1, "B": 1, "C": 1}},
+      "native": {"diagnostic": "INVALID_VALUE", "attempts": {"A": 1, "B": 1, "C": 1}}
+    }
+  ]
+}

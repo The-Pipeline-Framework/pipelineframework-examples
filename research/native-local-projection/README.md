@@ -16,9 +16,8 @@ their order, logical type identities and allowed retry counts. It never reads YA
 This is the bounded proof requested by [examples #27](https://github.com/The-Pipeline-Framework/pipelineframework-examples/issues/27),
 building on the provisional [contracts #52 profile](https://github.com/The-Pipeline-Framework/pipelineframework-contracts/pull/55)
 and the test-only compiler projection for [compiler #46](https://github.com/The-Pipeline-Framework/pipelineframework-compiler/issues/46).
-These shells are handwritten research scaffolding, not public native runtime
-libraries or delivered Node/Python parity. They add no Maven dependency or module;
-the existing examples continue consuming their released artifacts.
+These shells are handwritten research scaffolding for Node and Python. The native
+commands run independently of the examples Maven reactor.
 
 ## Run and inspect
 
@@ -142,6 +141,48 @@ node run_once.mjs /absolute/path/to/compiler/conformance/polyglot-projection-v0/
 The baseline `journey.mjs`/`journey.py` corpus expects A→B→C and result 5. `run_once.mjs`
 is the explicit changed-artifact entry point; it checks all generated hashes and
 executes the supplied ordering. It does not rebuild or parse DSL.
+
+## Compare the released Java unary executor
+
+The contributor comparison needs a JDK 21, Node 22.23 or later, and Python 3.11 or
+later. Run from this directory:
+
+```sh
+python3 -B runtime-policy/check_runtime_policy.py
+```
+
+The check resolves the pinned Java 26.11.1 artifacts into this worktree's Maven
+cache, verifies the JARs and fixture digests, and runs the released
+`PipelineRunnerCore` and `StepOneToOne` through the unary executor. Java, Node, and
+Python execute the same seven baseline cases and two overlapping fixture contexts.
+A second compiler-emitted projection gives B one retry. Its transient B failure
+exercises A once, B twice, and C once in each language. The baseline B budget of
+zero exercises A once and B once, then stops before C.
+
+The Java probe uses package access to the runtime's per-item executor, with
+cache, Await, and configured telemetry outside the exercised path. An actual
+subscriber cancellation stops a held A value before B can receive it. The Java
+and native probes hold the handoff on different sides of value admission. Their
+shared observation is the absence of a B invocation. Both overlapping Java
+subscriptions observe explicitly bound fixture context. An independent control
+finds that this Java path drops the separately attached Mutiny subscriber keys.
+See the exact comparison boundaries and policy differences in [EVIDENCE.md](EVIDENCE.md#released-java-unary-policy).
+
+The contributor command and its CI job are separate from the JVM-free `npm test`
+command. The fixture records the exact compiler, runtime and contracts source
+revisions, artifact hashes, and shared inputs. [Runtime policy provenance](runtime-policy/PROVENANCE.json)
+
+To regenerate the B-retry projection, use the recorded compiler revision and
+the same producer and baseline DSL as the original fixture. From that compiler
+checkout, set `examples_fixture` to the absolute path of this directory:
+
+```sh
+python3 -B conformance/polyglot-projection-v0/run.py --projection-only \
+  --bindings "$examples_fixture/runtime-policy/downstream-retry-bindings.json" \
+  --output target/runtime-policy-downstream-retry
+cmp target/runtime-policy-downstream-retry/projection.json \
+  "$examples_fixture/runtime-policy/downstream-retry-projection.json"
+```
 
 ## Scope and remaining gaps
 

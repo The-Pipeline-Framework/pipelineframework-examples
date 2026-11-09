@@ -32,8 +32,8 @@ All passed locally on 6 November 2026 with Node 26.8.2, Python 3.14.6 and actual
 TypeScript 5.9.3. Local tests completed in about four seconds; this is not billed CI
 time. The dedicated native CI job invokes the same `npm test` with Node 22.23.4
 and the runner's Python; its run, rather than this local report, owns CI evidence.
-No Maven command was needed or run for the examples changes. Compiler-owned
-contributor regeneration separately uses released Java DSL/model artifacts.
+The initial native comparison ran with Node and Python. Compiler-owned contributor
+regeneration separately uses released Java DSL and semantic-model artifacts.
 
 | Obligation | Executed evidence | Limit |
 | --- | --- | --- |
@@ -115,3 +115,63 @@ metadata in an isolated synthetic producer fixture; source/output comparisons an
 the real command-line tool execute unchanged. This does not add compiler evidence.
 `sourceModifiedAtCapture` now measures the entire compiler checkout, matching its
 description. README and evidence changed-order commands use the same output folder.
+
+## Released Java unary policy
+
+On 9 November 2026, `python3 -B runtime-policy/check_runtime_policy.py` passed
+with Corretto 21.0.9, Node 26.8.2 and Python 3.14.6. Each native report matched
+the same seven baseline answers and two overlapping fixture contexts observed
+through the released Java executor. Both native reports also passed five
+independent policy edge expectations. The comparator checks the runtime 26.11.1,
+runtime-core 26.11.1 and Mutiny 3.3.0 JAR digests and writes the live Java report
+under `target/native-local-runtime-policy/`. [Pinned inputs and released artifacts](runtime-policy/PROVENANCE.json)
+
+| Observation | Released Java | Node and Python |
+| --- | --- | --- |
+| Transient B, baseline budget 0 | A1 B1 C0, propagated fixture failure | A1 B1 C0, `TRANSIENT` |
+| Transient B, compiler-emitted budget 1 | A1 B2 C1, result 5 | A1 B2 C1, result 5 |
+| Unknown failure at A | Three invocations, propagates `IllegalStateException` | One invocation, `UNKNOWN_FAILURE` |
+| Recover a nonretryable A failure | A1 B0 C0, local reject fallback completes with null in the A-only range and full flow | A0 B0 C0, the proposed recovery property fails admission with `UNSUPPORTED_STEP` |
+| C emits null | A1 B1 C1, completed with null | A1 B1 C1, `INVALID_VALUE` |
+
+For the shared transient and rejection cases, fixture bindings translate a known
+transient failure to a Java `RuntimeException` subtype and business rejection to
+`NonRetryableException`. Java classifies them with its released default. The
+check compares invocation counts. Java uses a 1 ms initial backoff with a 2 ms
+cap and jitter disabled. The native research loops retry immediately. The
+unknown case preserves the actual Java exception class and invocation count.
+The native counterpart uses an unsupported structured code. Recovery uses the
+released Java configuration and default no-router fallback. The native recovery
+negative adds a proposed property to an intentionally invalid copy in memory.
+The C-null case compares the final output boundary directly. [Independent edge expectations](runtime-policy/edge-scenarios.json)
+
+`PipelineRunnerCore.runSync` assembles the reactive chain using the package-private
+released unary executor. The executor invokes each step with a fresh Uni holding
+the preceding value, so a B retry resubscribes to B's value. The comparison uses
+that production class seam without application boot, generated Java adapters,
+cache, Await, or configured telemetry. The authored Java probe supplies only
+arithmetic, fixture fault binding and test scheduling. [Released runner core](https://github.com/The-Pipeline-Framework/pipelineframework-contracts/blob/607f3ccbee0a759e098b703a0316708ee65e0de3/runtime-core/src/main/java/org/pipelineframework/runtime/core/PipelineRunnerCore.java#L64-L85)
+[Released unary handoff](https://github.com/The-Pipeline-Framework/pipelineframework-runtime/blob/ede444bb243191317aa2c76b3df8f23dbe74f454/runtime/src/main/java/org/pipelineframework/PipelineStepExecutor.java#L542-L558)
+[Released per-item input](https://github.com/The-Pipeline-Framework/pipelineframework-runtime/blob/ede444bb243191317aa2c76b3df8f23dbe74f454/runtime/src/main/java/org/pipelineframework/PipelineStepExecutor.java#L672-L677)
+
+The Java pre-cancelled fixture skips subscription. The A-return case subscribes,
+holds A's computed value before emitting it, cancels the downstream subscription,
+and observes cancellation at the producer. Releasing the cancelled emitter
+delivers no terminal signal. Two uncancelled held subscriptions both finish when
+released in reverse order. The native barrier runs after the shell accepts A's
+return. The cases compare stopping before B, with distinct cancellation mechanisms
+and boundary timing.
+
+The two IDs in the Java overlap report come from explicit immutable fixture context
+bound per run. A separate diagnostic sees both keys in a direct Mutiny subscription
+and neither key inside the three released step subscriptions. The diagnostic applies
+to that subscriber-context route. Production request-context and trace propagation
+need their own evidence. Streaming, Connectors and durable Await also remain
+product requirements.
+
+With Python optimization enabled, the comparison rejected a missing edge corpus
+and a report that claimed two A calls after the B retry. GitNexus reported a
+critical change summary for the new research flows and a partial overlay for the
+unchanged `CLAUDE.md` symlink. The pre-edit graph could not resolve the research
+README or CI file. The focused executable checks and exact source inspection cover
+the released calls and new comparison path.

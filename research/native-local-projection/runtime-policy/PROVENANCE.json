@@ -1,0 +1,34 @@
+{
+  "baselineExamplesRevision": "7d3c91fd123f1713cf46e03af6aa457c19b86b34",
+  "baselineProjectionSha256": "fc8f31fd3b89b7cf85cfa50769d6775a372a8373c98405f2551456531a7e047a",
+  "baselineScenariosSha256": "aa3da5ea64b045d4dc818ce9daa5b357b074894e2183dbaa12ae8342d23d2033",
+  "edgeScenariosSha256": "e792632a640b9148e956e56661e7ea60bd56a204198f4e6c7387eceb66a244ba",
+  "downstreamRetry": {
+    "compilerRevision": "bec72504fefe6006b25291bd41abe7db07a0a255",
+    "generatorTreeSha256": "7cddd1e0f5db40ed04d02899c6ec0aac7b51ce0119f5f320ef999a69ac4e52f7",
+    "bindingsSha256": "96f3a667000bac64e7ac1a9c8788954400c71ce71b264f7350fb770aa4c0bfdd",
+    "projectionSha256": "7b54ba1e45882bedbaa8856d568ca03147326feb09533c42c56acce449a1d3a6"
+  },
+  "releasedArtifacts": [
+    {
+      "group": "org.pipelineframework",
+      "artifact": "pipelineframework",
+      "version": "26.11.1",
+      "sourceRevision": "ede444bb243191317aa2c76b3df8f23dbe74f454",
+      "sha256": "8329e90412a0678db6d26ba56d44a5da65760c35040cea5329181f502509af5a"
+    },
+    {
+      "group": "org.pipelineframework",
+      "artifact": "pipelineframework-runtime-core",
+      "version": "26.11.1",
+      "sourceRevision": "607f3ccbee0a759e098b703a0316708ee65e0de3",
+      "sha256": "cc9379d0d51f060f4531c78f938ee3b5e2b017f62a4ceca52e4067660abd4f2e"
+    },
+    {
+      "group": "io.smallrye.reactive",
+      "artifact": "mutiny",
+      "version": "3.3.0",
+      "sha256": "468035abda56638307e8dad7d4be3bd818b05725f0559140b32e087be017b83f"
+    }
+  ]
+}
