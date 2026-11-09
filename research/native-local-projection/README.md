@@ -1,6 +1,6 @@
 # A compiler-produced pipeline in one native process
 
-This research example consumes the compiler-owned research tool's **explicitly supplied generated
+This research example consumes the examples-owned research tool's **explicitly supplied generated
 artifact** and calls three asynchronous functions in one Node or Python process:
 
 ```text
@@ -82,6 +82,12 @@ accepted contract and owner.
 
 ## Artifact origin and drift checks
 
+The current producer and all its conformance tests live in
+[research/polyglot-projection-v0](../polyglot-projection-v0/README.md) in this repository.
+Use that producer for the profile 1 binding below; examples CI checks generation
+and execution together. The v0 controls retain their historical compiler-PR source
+pins. The reproduction commands in this section describe those older fixtures.
+
 The files in `generated/` are copied **byte for byte** from the compiler-owned
 `conformance/polyglot-projection-v0/generated/` output. [PROVENANCE.json](PROVENANCE.json)
 records its source revision, whether that checkout was modified at capture, exact
@@ -115,7 +121,8 @@ npm test
 current producer sources and input bytes match the projection's fingerprints; a
 source edit requires genuine regeneration before copying. `--check` reports drift
 without overwriting the fixture. Native CI verifies the committed inventory and
-journeys; compiler CI owns real DSL validation, generation and regeneration drift.
+journeys. The relocated producer's examples CI job now owns DSL validation,
+generation and regeneration drift checks.
 
 A digest supplies integrity relative to the explicitly trusted inventory; it is not
 authentication or a signed Release identity. This bounded loader accepts trusted,

@@ -1,7 +1,6 @@
 {
-  "sourceRepository": "https://github.com/The-Pipeline-Framework/pipelineframework-compiler",
-  "sourceRevision": "c56abcee5f83f6c9911f9d8560eb40284c498da0",
-  "sourceDirectory": "conformance/polyglot-projection-v0",
+  "sourceRepository": "https://github.com/The-Pipeline-Framework/pipelineframework-examples",
+  "sourceDirectory": "research/polyglot-projection-v0",
   "generatorTreeSha256": "6fb8559bfb79fd9aca72a9e50025029584b6068ac4620b86ec79abb9a91f426f",
   "sourceFileSha256": {
     "JavaReferenceProbe.java": "7657dc77b6130df9c87d3035c4aea5af1ba13bfa73af4ad016a229f303572fa0",
@@ -47,5 +46,10 @@
         "projection.json": "0f815e11f66998bb42c962477a1ca10c96bbdfdd8eb8320c2e00f4339cfc4236"
       }
     }
+  },
+  "importedFrom": {
+    "sourceRepository": "https://github.com/The-Pipeline-Framework/pipelineframework-compiler",
+    "sourceRevision": "c56abcee5f83f6c9911f9d8560eb40284c498da0",
+    "sourceDirectory": "conformance/polyglot-projection-v0"
   }
 }

@@ -68,10 +68,13 @@ uses the expected values supplied in `scenarios.json` as its oracle.
 ## Artifact origin and limits
 
 The three directories under [generated](generated) contain the compiler's output bytes.
-[PROVENANCE.json](PROVENANCE.json) pins the compiler source, DSL and binding inputs, and each
-artifact's digest. To regenerate, use the pinned compiler checkout and its
-[three generation commands](https://github.com/The-Pipeline-Framework/pipelineframework-compiler/blob/c56abcee5f83f6c9911f9d8560eb40284c498da0/conformance/polyglot-projection-v0/README.md#generate-the-explicit-unary-policy-binding),
-then compare its `generated-policy/` directory with this directory's `generated/`. The
+[PROVENANCE.json](PROVENANCE.json) pins the research producer source, DSL and binding inputs, and each
+artifact's digest. To regenerate, use the examples checkout and its
+[three generation commands](../../../polyglot-projection-v0/README.md#generate-the-explicit-unary-policy-binding),
+then compare its `generated-policy/` directory with this directory's `generated/`.
+The producer tests also verify these copies and all pinned source/input bytes.
+`importedFrom` preserves the original compiler-PR provenance; no compiler checkout
+or unmerged compiler PR is required. The
 examples runner checks those pinned bytes and reads the artifact to select the functions.
 
 This proof qualifies one pure, linear, unary LOCAL research slice over trusted compiler JSON.
