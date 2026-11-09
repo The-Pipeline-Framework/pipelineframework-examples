@@ -1,0 +1,545 @@
+{
+  "schemaVersion": 1,
+  "profile": "tpf-polyglot-unary-policy/1",
+  "cases": [
+    {
+      "id": "success",
+      "expected": {
+        "calls": [["A", 3], ["B", 4], ["C", 8]],
+        "terminal": {"kind": "COMPLETED", "outcome": {"kind": "VALUE", "value": {"value": 5}}}
+      }
+    },
+    {
+      "id": "changed-order",
+      "projection": "changed-order",
+      "expected": {
+        "calls": [["B", 3], ["A", 6], ["C", 7]],
+        "terminal": {"kind": "COMPLETED", "outcome": {"kind": "VALUE", "value": {"value": 4}}}
+      }
+    },
+    {
+      "id": "b-budget-zero",
+      "faults": {
+        "B": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "B unavailable", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "B"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3], ["B", 4]],
+        "terminal": {"kind": "FAILED", "failure": {"code": "TRANSIENT", "message": "B unavailable", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "B"}}
+      }
+    },
+    {
+      "id": "b-budget-one",
+      "projection": "downstream-retry",
+      "faults": {
+        "B": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "B unavailable", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "B"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3], ["B", 4], ["B", 4], ["C", 8]],
+        "terminal": {"kind": "COMPLETED", "outcome": {"kind": "VALUE", "value": {"value": 5}}}
+      }
+    },
+    {
+      "id": "exhaust-preserves-failure",
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "attempt 1", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "A"}},
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "attempt 2", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "A"}},
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "A still unavailable on attempt 3", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "A"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3], ["A", 3], ["A", 3]],
+        "terminal": {"kind": "FAILED", "failure": {"code": "TRANSIENT", "message": "A still unavailable on attempt 3", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "A"}}
+      }
+    },
+    {
+      "id": "business-rejection",
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "BUSINESS_REJECTION", "message": "Order rejected", "owner": "LOCAL_SHELL", "retryable": false, "stepId": "A"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "FAILED", "failure": {"code": "BUSINESS_REJECTION", "message": "Order rejected", "owner": "LOCAL_SHELL", "retryable": false, "stepId": "A"}}
+      }
+    },
+    {
+      "id": "raw-host-exception",
+      "faults": {
+        "A": [
+          {"kind": "throw"}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "FAILED", "failure": {"code": "UNCLASSIFIED", "message": "Unclassified business function failure", "owner": "LOCAL_SHELL", "retryable": false, "stepId": "A"}}
+      }
+    },
+    {
+      "id": "wire-unclassified",
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "UNCLASSIFIED", "message": "Unclassified business function failure", "owner": "LOCAL_SHELL", "retryable": false, "stepId": "A"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "FAILED", "failure": {"code": "UNCLASSIFIED", "message": "Unclassified business function failure", "owner": "LOCAL_SHELL", "retryable": false, "stepId": "A"}}
+      }
+    },
+    {
+      "id": "unknown-code",
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "UNKNOWN", "message": "A unavailable", "owner": "LOCAL_SHELL", "retryable": false, "stepId": "A"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "UNKNOWN_FAILURE_CODE"}
+      }
+    },
+    {
+      "id": "malformed-failure",
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "A unavailable", "owner": "LOCAL_SHELL", "retryable": "yes", "stepId": "A"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "MALFORMED_FAILURE"}
+      }
+    },
+    {
+      "id": "missing-failure-field",
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "MALFORMED_FAILURE"}
+      }
+    },
+    {
+      "id": "lying-eligibility",
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "A unavailable", "owner": "LOCAL_SHELL", "retryable": false, "stepId": "A"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "FAILURE_BINDING_MISMATCH"}
+      }
+    },
+    {
+      "id": "spoofed-owner",
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "A unavailable", "owner": "OTHER", "retryable": true, "stepId": "A"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "FAILURE_BINDING_MISMATCH"}
+      }
+    },
+    {
+      "id": "spoofed-step",
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "A unavailable", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "B"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "FAILURE_BINDING_MISMATCH"}
+      }
+    },
+    {
+      "id": "unclassified-unsanitised",
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "UNCLASSIFIED", "message": "do not leak", "owner": "LOCAL_SHELL", "retryable": false, "stepId": "A"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "FAILURE_BINDING_MISMATCH"}
+      }
+    },
+    {
+      "id": "raw-null",
+      "faults": {
+        "A": [
+          {"kind": "return", "outcome": null}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_VALUE"}
+      }
+    },
+    {
+      "id": "implicit-return",
+      "faults": {
+        "A": [
+          {"kind": "implicit"}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_VALUE"}
+      }
+    },
+    {
+      "id": "raw-record",
+      "faults": {
+        "A": [
+          {"kind": "return", "outcome": {"value": 4}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_VALUE"}
+      }
+    },
+    {
+      "id": "empty",
+      "faults": {
+        "A": [
+          {"kind": "return", "outcome": {"kind": "EMPTY"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "UNSUPPORTED_EMPTY"}
+      }
+    },
+    {
+      "id": "missing-value",
+      "faults": {
+        "A": [
+          {"kind": "return", "outcome": {"kind": "VALUE"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_VALUE"}
+      }
+    },
+    {
+      "id": "nonnull-null",
+      "faults": {
+        "A": [
+          {"kind": "return", "outcome": {"kind": "VALUE", "value": null}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_VALUE"}
+      }
+    },
+    {
+      "id": "invalid-record",
+      "faults": {
+        "A": [
+          {"kind": "return", "outcome": {"kind": "VALUE", "value": {"value": true}}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_VALUE"}
+      }
+    },
+    {
+      "id": "out-of-range-record",
+      "faults": {
+        "A": [
+          {"kind": "return", "outcome": {"kind": "VALUE", "value": {"value": 2147483648}}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_VALUE"}
+      }
+    },
+    {
+      "id": "legacy-retry",
+      "ownership": {"legacyRetry": true, "recovery": false},
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "POLICY_OWNERSHIP_CONFLICT"}
+      }
+    },
+    {
+      "id": "legacy-recovery",
+      "ownership": {"legacyRetry": false, "recovery": true},
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "POLICY_OWNERSHIP_CONFLICT"}
+      }
+    },
+    {
+      "id": "null-ownership",
+      "ownership": null,
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_POLICY"}
+      }
+    },
+    {
+      "id": "null-input",
+      "input": null,
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_VALUE"}
+      }
+    },
+    {
+      "id": "unsupported-profile",
+      "artifactMutation": {"path": ["profile"], "value": "future/9"},
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "UNSUPPORTED_PROFILE"}
+      }
+    },
+    {
+      "id": "unsupported-owner",
+      "artifactMutation": {"path": ["policy", "retryOwner"], "value": "REMOTE"},
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "UNSUPPORTED_POLICY"}
+      }
+    },
+    {
+      "id": "unsupported-capability",
+      "artifactMutation": {"path": ["requiredCapabilities"], "value": ["durable-recovery"]},
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "UNSUPPORTED_CAPABILITY"}
+      }
+    },
+    {
+      "id": "invalid-budget",
+      "artifactMutation": {"path": ["steps", 0, "retryLimit"], "value": 3},
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "UNSUPPORTED_RETRY"}
+      }
+    },
+    {
+      "id": "unsupported-type",
+      "artifactMutation": {"path": ["types", 1, "fields", 0, "nullability"], "value": "NULLABLE"},
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "UNSUPPORTED_TYPE"}
+      }
+    },
+    {
+      "id": "cancel-prestart",
+      "cancel": "prestart",
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "CANCELLED"}
+      }
+    },
+    {
+      "id": "cancel-handoff",
+      "cancel": "during",
+      "gate": {"phase": "after-return", "step": "A"},
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "CANCELLED"}
+      }
+    },
+    {
+      "id": "handoff-released",
+      "gate": {"phase": "after-return", "step": "A"},
+      "expected": {
+        "calls": [["A", 3], ["B", 4], ["C", 8]],
+        "terminal": {"kind": "COMPLETED", "outcome": {"kind": "VALUE", "value": {"value": 5}}}
+      }
+    },
+    {
+      "id": "cancel-pending-retry",
+      "cancel": "during",
+      "gate": {"phase": "before-retry", "step": "A"},
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "A unavailable", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "A"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "CANCELLED"}
+      }
+    },
+    {
+      "id": "pending-retry-released",
+      "gate": {"phase": "before-retry", "step": "A"},
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "A unavailable", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "A"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3], ["A", 3], ["B", 4], ["C", 8]],
+        "terminal": {"kind": "COMPLETED", "outcome": {"kind": "VALUE", "value": {"value": 5}}}
+      }
+    },
+    {
+      "id": "cancel-inflight-success",
+      "cancel": "during",
+      "gate": {"phase": "in-flight", "step": "A"},
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "CANCELLED"}
+      }
+    },
+    {
+      "id": "cancel-inflight-failure",
+      "cancel": "during",
+      "gate": {"phase": "in-flight", "step": "A"},
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "A unavailable", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "A"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "CANCELLED"}
+      }
+    },
+    {
+      "id": "cancel-after-b-start",
+      "cancel": "during",
+      "gate": {"phase": "in-flight", "step": "B"},
+      "expected": {
+        "calls": [["A", 3], ["B", 4]],
+        "terminal": {"kind": "CANCELLED"}
+      }
+    },
+    {
+      "id": "complete-before-cancel",
+      "cancel": "after",
+      "expected": {
+        "calls": [["A", 3], ["B", 4], ["C", 8]],
+        "terminal": {"kind": "COMPLETED", "outcome": {"kind": "VALUE", "value": {"value": 5}}}
+      }
+    },
+    {
+      "id": "failure-before-cancel",
+      "cancel": "after",
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "BUSINESS_REJECTION", "message": "Order rejected", "owner": "LOCAL_SHELL", "retryable": false, "stepId": "A"}}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "FAILED", "failure": {"code": "BUSINESS_REJECTION", "message": "Order rejected", "owner": "LOCAL_SHELL", "retryable": false, "stepId": "A"}}
+      }
+    },
+    {
+      "id": "invalid-before-cancel",
+      "cancel": "after",
+      "faults": {
+        "A": [
+          {"kind": "return", "outcome": null}
+        ]
+      },
+      "expected": {
+        "calls": [["A", 3]],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_VALUE"}
+      }
+    },
+    {
+      "id": "context-missing",
+      "context": null,
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_CONTEXT"}
+      }
+    },
+    {
+      "id": "context-absent",
+      "context": {"executionId": "only"},
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_CONTEXT"}
+      }
+    },
+    {
+      "id": "context-blank",
+      "context": {"executionId": " \t\r\n", "traceId": "exists"},
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_CONTEXT"}
+      }
+    },
+    {
+      "id": "context-type",
+      "context": {"executionId": 7, "traceId": "exists"},
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_CONTEXT"}
+      }
+    },
+    {
+      "id": "context-authority",
+      "context": {"executionId": "mine", "traceId": "mine-trace", "credential": "forbidden"},
+      "expected": {
+        "calls": [],
+        "terminal": {"kind": "REJECTED", "diagnostic": "INVALID_CONTEXT"}
+      }
+    },
+    {
+      "id": "context-non-ascii",
+      "context": {"executionId": " \u00a0\n", "traceId": " \u2028 "},
+      "expected": {
+        "calls": [["A", 3], ["B", 4], ["C", 8]],
+        "terminal": {"kind": "COMPLETED", "outcome": {"kind": "VALUE", "value": {"value": 5}}}
+      }
+    },
+    {
+      "id": "overlap-left",
+      "context": {"executionId": " left ", "traceId": "trace-left"},
+      "gate": {"phase": "in-flight", "step": "A"},
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "A unavailable", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "A"}}
+        ]
+      },
+      "overlap": true,
+      "expected": {
+        "calls": [["A", 3], ["A", 3], ["B", 4], ["C", 8]],
+        "terminal": {"kind": "COMPLETED", "outcome": {"kind": "VALUE", "value": {"value": 5}}}
+      }
+    },
+    {
+      "id": "overlap-right",
+      "input": {"value": 9},
+      "context": {"executionId": "right", "traceId": " trace-right "},
+      "gate": {"phase": "in-flight", "step": "A"},
+      "faults": {
+        "A": [
+          {"kind": "failure", "envelope": {"code": "TRANSIENT", "message": "A unavailable", "owner": "LOCAL_SHELL", "retryable": true, "stepId": "A"}}
+        ]
+      },
+      "overlap": true,
+      "expected": {
+        "calls": [["A", 9], ["A", 9], ["B", 10], ["C", 20]],
+        "terminal": {"kind": "COMPLETED", "outcome": {"kind": "VALUE", "value": {"value": 17}}}
+      }
+    }
+  ]
+}

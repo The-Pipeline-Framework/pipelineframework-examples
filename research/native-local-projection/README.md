@@ -32,14 +32,14 @@ node journey.mjs
 python3 -B journey.py
 ```
 
-`npm test` runs the actual pinned TypeScript 5.9.3 checker, requires five specific
-negative type diagnostics, runs Node and Python boundary tests, and compares each
+The profile 0 checks in `npm test` run the pinned TypeScript 5.9.3 checker, require five specific
+negative type diagnostics, run Node and Python boundary tests, and compare each
 language's actual journey report with the pinned Java research reference. Focused
 contributor-tool tests require these evidence checks to reject drift under optimized
 Python as well. Merely
 running `.ts` with Node strips types; **the separate `tsc` check supplies semantic
 type diagnostics**. Python imports generated `TypedDict` declarations and performs
-runtime validation; no Python static checker was exercised.
+runtime validation. The profile 1 checks below also run Pyright.
 
 The terminal report names each outcome, A/B/C invocation count and result. Seven
 fixed scenarios cover success, two transient A failures followed by success, retry
@@ -183,6 +183,18 @@ python3 -B conformance/polyglot-projection-v0/run.py --projection-only \
 cmp target/runtime-policy-downstream-retry/projection.json \
   "$examples_fixture/runtime-policy/downstream-retry-projection.json"
 ```
+
+## Qualify the explicit unary policy
+
+The [profile 1 binding](runtime-policy/v1/README.md) exercises the same functions with
+an explicit result carrier, strict failure mapping and one local retry owner. It runs
+the released Java executor, Node promises and Python coroutines against three genuine
+compiler artifacts and fixed expected calls, outcomes and deliveries.
+
+`npm test` includes the JVM-free profile 1 checks. To compare all three bindings
+from this directory with a JDK 21 available, run
+`python3 -B runtime-policy/v1/check_policy_binding.py`. The earlier comparison above
+provides controls for the original Java retry and recovery behavior.
 
 ## Scope and remaining gaps
 

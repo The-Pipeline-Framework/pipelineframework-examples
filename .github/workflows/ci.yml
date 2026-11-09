@@ -51,9 +51,9 @@ jobs:
           node-version: '22.23.4'
           cache: npm
           cache-dependency-path: research/native-local-projection/package-lock.json
-      - name: Install pinned type checker
+      - name: Install pinned type checkers
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Verify native LOCAL journey and pinned Java research reference
+      - name: Verify native LOCAL journeys and pinned compiler artifacts
         run: npm test
 
   released-java-unary-policy:
@@ -76,3 +76,6 @@ jobs:
       - name: Compare released Java and native unary policy
         working-directory: research/native-local-projection
         run: python3 -B runtime-policy/check_runtime_policy.py
+      - name: Qualify the explicit unary policy binding
+        working-directory: research/native-local-projection
+        run: python3 -B runtime-policy/v1/check_policy_binding.py

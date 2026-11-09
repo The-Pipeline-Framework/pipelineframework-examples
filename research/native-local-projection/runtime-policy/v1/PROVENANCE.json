@@ -1,0 +1,51 @@
+{
+  "sourceRepository": "https://github.com/The-Pipeline-Framework/pipelineframework-compiler",
+  "sourceRevision": "c56abcee5f83f6c9911f9d8560eb40284c498da0",
+  "sourceDirectory": "conformance/polyglot-projection-v0",
+  "generatorTreeSha256": "6fb8559bfb79fd9aca72a9e50025029584b6068ac4620b86ec79abb9a91f426f",
+  "sourceFileSha256": {
+    "JavaReferenceProbe.java": "7657dc77b6130df9c87d3035c4aea5af1ba13bfa73af4ad016a229f303572fa0",
+    "NativeModelEmitter.java": "be275b068c0c436207d18c2aff91f9c8cdacab7dc6cbc7522ef4c7380160edd3",
+    "PolyglotProjectionProbe.java": "6c20dfc347c669efcd6a3b011a63ff8d3d1ab3a9d9602751735c5f5d5e4aa7d2",
+    "dependencies.pom.xml": "242c21832dc8752422d9c14ff116308a697ca1460311ffe47ffb5a2288bad259",
+    "run.py": "2005e401fbac47310bdee46493c96b830d7a6acac7585522729b8d46bf579a94"
+  },
+  "inputFileSha256": {
+    "fixtures/changed-order.yaml": "d7fb0040ee42ede225b79fc185903c892337a3f5da9da35226652420eec657b4",
+    "fixtures/pipeline.yaml": "6d57faf58e5ae83c83e37d6d9686e5fc2a82e921fa967cea978182a5b0b30bfe",
+    "fixtures/policy-bindings.json": "57bc91241f637cb54d67f7a220b0e81071f9c08d9ed1964b80a4315dc2985014",
+    "fixtures/policy-downstream-retry-bindings.json": "d3c4482f66126e4c22343f15aabd5a8f845eb63ab2c4f7a5219780a1a1567622"
+  },
+  "artifacts": {
+    "baseline": {
+      "dsl": "fixtures/pipeline.yaml",
+      "bindings": "fixtures/policy-bindings.json",
+      "sha256": {
+        "SHA256SUMS": "3cb13e8eb3e84d45d4244fa81baeef3ff9877b7346e417b6bb653c7e1379aec3",
+        "models.py": "b7abd209965ab224536f6e1ade5c282dfe29aa7521ee1f1b9d852c5e83d2dc53",
+        "models.ts": "e797e841f4c4986cd7997cc30eaa37239fdb7685695e56db7e5183a643474a98",
+        "projection.json": "bcc09fec78f305c2c70117d58dcebec96aaec6f1bcec7c396c716ce0a66e6499"
+      }
+    },
+    "changed-order": {
+      "dsl": "fixtures/changed-order.yaml",
+      "bindings": "fixtures/policy-bindings.json",
+      "sha256": {
+        "SHA256SUMS": "e36b9bdc671119f7702f3096801182922201939a913fbce022854f29104173d9",
+        "models.py": "ae1506e24687816c13ec9058b3ee90e05589dcff5be83deca4feec8ac6e8535b",
+        "models.ts": "2139684981bff119d0edc632cfc06727835afbc7d9ab5627036e87cf6e22641c",
+        "projection.json": "e0673e199e69f97392cf7b6c7857dfcd7dc7e62d494749e4d93bce35afc9a718"
+      }
+    },
+    "downstream-retry": {
+      "dsl": "fixtures/pipeline.yaml",
+      "bindings": "fixtures/policy-downstream-retry-bindings.json",
+      "sha256": {
+        "SHA256SUMS": "50daec281065465061a425efd63deb0b66bc61ae533668e356ca615d23fed1c4",
+        "models.py": "b7abd209965ab224536f6e1ade5c282dfe29aa7521ee1f1b9d852c5e83d2dc53",
+        "models.ts": "e797e841f4c4986cd7997cc30eaa37239fdb7685695e56db7e5183a643474a98",
+        "projection.json": "0f815e11f66998bb42c962477a1ca10c96bbdfdd8eb8320c2e00f4339cfc4236"
+      }
+    }
+  }
+}

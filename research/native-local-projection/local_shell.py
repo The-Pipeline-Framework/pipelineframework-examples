@@ -4,12 +4,22 @@ There is no DSL parser, provider, coordinator, subprocess, JVM, or transport her
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
 from types import MappingProxyType
+
+
+POLICY_PROFILE = 'tpf-polyglot-unary-policy/1'
+POLICY_BINDING = MappingProxyType({
+    'failureMapping': 'structured-failure/1', 'retryOwner': 'LOCAL_SHELL',
+    'resultMapping': 'explicit-value/1', 'cancellation': 'first-accepted-terminal/1',
+    'context': 'explicit-snapshot/1', 'recovery': 'REJECT', 'legacyPolicy': 'REJECT',
+})
+DEFAULT_OWNERSHIP = object()
 
 
 class Diagnostic(Exception):
@@ -63,16 +73,22 @@ def freeze(value):
     return value
 
 
-def admit_projection(raw, expected_digest, handlers):
+def admit_projection(raw, expected_digest, handlers, *, profile='tpf-polyglot-probe/0'):
     """Check byte identity first. The digest establishes integrity, not authentication."""
     require(digest(expected_digest) and hashlib.sha256(raw).hexdigest() == expected_digest,
             'ARTIFACT_DIGEST_MISMATCH')
     p = parse_projection(raw)
-    keys(p, ['schemaVersion', 'profile', 'kind', 'pipeline', 'requiredCapabilities',
-             'types', 'steps', 'contextKeys', 'provenance'], 'UNSUPPORTED_PROJECTION')
+    policy = profile == POLICY_PROFILE
+    fields = ['schemaVersion', 'profile', 'kind', 'pipeline', 'requiredCapabilities',
+              'types', 'steps', 'contextKeys', 'provenance']
+    if policy:
+        fields.append('policy')
+    keys(p, fields, 'UNSUPPORTED_PROJECTION')
     require(type(p['schemaVersion']) is int and p['schemaVersion'] == 1, 'UNSUPPORTED_SCHEMA')
-    require(p['profile'] == 'tpf-polyglot-probe/0'
+    require((policy or profile == 'tpf-polyglot-probe/0') and p['profile'] == profile
             and p['kind'] == 'compiler-projection-probe', 'UNSUPPORTED_PROFILE')
+    if policy:
+        require(p['policy'] == POLICY_BINDING, 'UNSUPPORTED_POLICY')
     pipeline = p['pipeline']
     keys(pipeline, ['id', 'inputType', 'outputType', 'transport', 'platform', 'execution'],
          'UNSUPPORTED_PIPELINE')
@@ -140,9 +156,10 @@ def validate_value(value):
             'INVALID_VALUE')
 
 
-def validate_context(context):
+def validate_context(context, policy=False):
     keys(context, ['executionId', 'traceId'], 'INVALID_CONTEXT')
-    require(all(type(v) is str and bool(v) for v in context.values()), 'INVALID_CONTEXT')
+    require(all(type(v) is str and (bool(v.strip(' \t\r\n')) if policy else bool(v))
+                for v in context.values()), 'INVALID_CONTEXT')
 
 
 class Failure(Exception):
@@ -162,55 +179,151 @@ def validate_failure(failure, step_id):
             'FAILURE_POLICY_CONFLICT')
 
 
+SANITISED = 'Unclassified business function failure'
+
+
+def bind_failure(error, step_id):
+    failure = error.envelope if isinstance(error, Failure) else {
+        'code': 'UNCLASSIFIED', 'message': SANITISED, 'retryable': False,
+        'owner': POLICY_BINDING['retryOwner'], 'stepId': step_id,
+    }
+    keys(failure, ['code', 'message', 'retryable', 'owner', 'stepId'], 'MALFORMED_FAILURE')
+    require(all(type(failure[key]) is str for key in ['code', 'message', 'owner', 'stepId'])
+            and type(failure['retryable']) is bool, 'MALFORMED_FAILURE')
+    require(failure['code'] in ['TRANSIENT', 'BUSINESS_REJECTION', 'UNCLASSIFIED'],
+            'UNKNOWN_FAILURE_CODE')
+    require(failure['owner'] == POLICY_BINDING['retryOwner'] and failure['stepId'] == step_id
+            and failure['retryable'] == (failure['code'] == 'TRANSIENT')
+            and (failure['code'] != 'UNCLASSIFIED' or failure['message'] == SANITISED),
+            'FAILURE_BINDING_MISMATCH')
+    return dict(failure)
+
+
+def bind_result(returned):
+    require(returned != {'kind': 'EMPTY'}, 'UNSUPPORTED_EMPTY')
+    keys(returned, ['kind', 'value'], 'INVALID_VALUE')
+    require(returned['kind'] == 'VALUE', 'INVALID_VALUE')
+    return returned['value']
+
+
 async def execute(admission, input_value, context, *, cancelled=lambda: False,
-                  after_return=None):
+                  after_return=None, cancel_event=None, before_retry=None,
+                  on_terminal=None, on_delivery=None, ownership=DEFAULT_OWNERSHIP):
     """Return to the shell after each awaited native coroutine before choosing the next step."""
     projection, handlers = admission.projection, admission.handlers
-    validate_value(input_value)
-    validate_context(context)
-    local_context = MappingProxyType(dict(context))
+    policy = projection['profile'] == POLICY_PROFILE
     attempts = {step['id']: 0 for step in projection['steps']}
     trace = []
-    value = dict(input_value)
+    delivery = []
+    terminal = None
+    observations = 0
+    watcher = None
+
+    def summary():
+        return {'terminal': terminal, 'attempts': attempts, 'trace': trace,
+                'observations': observations, 'delivery': delivery}
+
+    def finish(outcome):
+        nonlocal terminal, observations
+        if terminal is None:
+            terminal = outcome
+            observations += 1
+            if on_terminal:
+                on_terminal(freeze(terminal))
+            if terminal['kind'] != 'CANCELLED':
+                delivery.append(terminal)
+                if on_delivery:
+                    on_delivery(freeze(terminal))
+        return summary()
+
+    async def observe_cancel():
+        await cancel_event.wait()
+        finish({'kind': 'CANCELLED'})
 
     def event(kind, step):
         trace.append({'kind': kind, 'stepId': step['id'], **local_context})
 
     def cancellation(step):
+        if policy:
+            if cancel_event is not None and cancel_event.is_set():
+                finish({'kind': 'CANCELLED'})
+            return terminal is not None and terminal['kind'] == 'CANCELLED'
         if cancelled():
             event('cancelled', step)
             return True
         return False
 
-    for step in projection['steps']:
-        if cancellation(step):
-            return {'outcome': 'CANCELLED', 'attempts': attempts, 'trace': trace}
-        while True:
-            attempts[step['id']] += 1
-            event('invoke', step)
-            try:
-                returned = await handlers[step['handler']](MappingProxyType(value), local_context)
-            except Exception as error:
-                if cancellation(step):
-                    return {'outcome': 'CANCELLED', 'attempts': attempts, 'trace': trace}
-                require(isinstance(error, Failure), 'MALFORMED_FAILURE')
-                failure = error.envelope
-                validate_failure(failure, step['id'])
-                event('failure', step)
-                if not failure['retryable'] or attempts[step['id']] > step['retryLimit']:
-                    return {'outcome': 'FAILED', 'attempts': attempts, 'trace': trace,
-                            'failure': failure}
-                event('retry', step)
-                continue
+    def cancelled_result():
+        return summary() if policy else {'outcome': 'CANCELLED', 'attempts': attempts, 'trace': trace}
+
+    try:
+        validate_value(input_value)
+        validate_context(context, policy)
+        local_context = MappingProxyType(dict(context))
+        value = dict(input_value)
+        if policy:
+            if ownership is DEFAULT_OWNERSHIP:
+                ownership = {'legacyRetry': False, 'recovery': False}
+            keys(ownership, ['legacyRetry', 'recovery'], 'INVALID_POLICY')
+            require(all(type(flag) is bool for flag in ownership.values()), 'INVALID_POLICY')
+            require(not any(ownership.values()), 'POLICY_OWNERSHIP_CONFLICT')
+            if cancel_event is not None:
+                if cancel_event.is_set():
+                    return finish({'kind': 'CANCELLED'})
+                watcher = asyncio.create_task(observe_cancel())
+
+        for index, step in enumerate(projection['steps']):
             if cancellation(step):
-                return {'outcome': 'CANCELLED', 'attempts': attempts, 'trace': trace}
-            validate_value(returned)
-            value = dict(returned)
-            event('return', step)
-            # Deterministic test scheduling only, never a generated business capability.
-            if after_return:
-                await after_return(step['id'])
-            break
-    if cancellation(projection['steps'][-1]):
-        return {'outcome': 'CANCELLED', 'attempts': attempts, 'trace': trace}
-    return {'outcome': 'COMPLETED', 'attempts': attempts, 'trace': trace, 'result': value}
+                return cancelled_result()
+            while True:
+                attempts[step['id']] += 1
+                event('invoke', step)
+                try:
+                    returned = await handlers[step['handler']](MappingProxyType(value), local_context)
+                except Exception as error:
+                    if cancellation(step):
+                        return cancelled_result()
+                    if policy:
+                        failure = bind_failure(error, step['id'])
+                    else:
+                        require(isinstance(error, Failure), 'MALFORMED_FAILURE')
+                        failure = error.envelope
+                        validate_failure(failure, step['id'])
+                    event('failure', step)
+                    if not failure['retryable'] or attempts[step['id']] > step['retryLimit']:
+                        if policy:
+                            return finish({'kind': 'FAILED', 'failure': failure})
+                        return {'outcome': 'FAILED', 'attempts': attempts, 'trace': trace,
+                                'failure': failure}
+                    event('retry', step)
+                    if policy and before_retry:
+                        await before_retry(step['id'])
+                    if policy and cancellation(step):
+                        return cancelled_result()
+                    continue
+                if cancellation(step):
+                    return cancelled_result()
+                if policy:
+                    returned = bind_result(returned)
+                validate_value(returned)
+                value = dict(returned)
+                event('return', step)
+                if policy and index == len(projection['steps']) - 1:
+                    finish({'kind': 'COMPLETED', 'outcome': {'kind': 'VALUE', 'value': value}})
+                # Test scheduling only. A final value is already committed before this hook.
+                if after_return:
+                    await after_return(step['id'])
+                break
+        if policy:
+            return summary()
+        if cancellation(projection['steps'][-1]):
+            return cancelled_result()
+        return {'outcome': 'COMPLETED', 'attempts': attempts, 'trace': trace, 'result': value}
+    except Diagnostic as error:
+        if policy:
+            return finish({'kind': 'REJECTED', 'diagnostic': error.code})
+        raise
+    finally:
+        if watcher is not None:
+            watcher.cancel()
+            await asyncio.gather(watcher, return_exceptions=True)
