@@ -7,6 +7,8 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 sys.path.append(str(HERE.parents[1]))
+# The generated models belong to a pinned inventory that must stay clean on direct runs.
+sys.dont_write_bytecode = True
 
 from authored import handlers as business
 from local_shell import Diagnostic, Failure, POLICY_PROFILE, admit_projection, execute
