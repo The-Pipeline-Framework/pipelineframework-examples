@@ -13,6 +13,9 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntUnaryOperator;
 
@@ -54,35 +57,41 @@ final class JavaReferenceProbe {
         for (JsonNode row : scenarios.path("cases")) {
             Scenario scenario = readScenario(row);
             Map<String, Object> summary = execute(projection, scenario, new Context(scenario.id(), "trace-" + scenario.id()),
-                Optional.empty(), new ArrayList<>()).join();
+                Optional.empty(), new ArrayList<>(), ForkJoinPool.commonPool()).join();
             equal(row.path("expected"), json.valueToTree(summary), scenario.id());
             var report = new LinkedHashMap<String, Object>();
             report.put("id", scenario.id());
             report.putAll(summary);
             cases.add(report);
         }
-        // Both A invocations must arrive before either continues. Contexts are immutable values
+        // All A invocations must arrive before any continues. Contexts are immutable values
         // passed to every async function, so overlap cannot read a shared last-invocation context.
         int contextCount = scenarios.path("contexts").size();
         if (contextCount < 2 || contextCount > 8) throw new IllegalArgumentException("JAVA_REFERENCE_REJECT:context count");
         var barrier = new CyclicBarrier(contextCount);
         var contexts = new ArrayList<CompletableFuture<Map<String, Object>>>();
-        for (JsonNode row : scenarios.path("contexts")) {
-            Context context = new Context(text(row, "executionId"), text(row, "traceId"));
-            var observations = new ArrayList<Observation>();
-            Scenario scenario = new Scenario(context.executionId(), int32(row.path("input")), Optional.empty(), false, Optional.empty());
-            contexts.add(execute(projection, scenario, context, Optional.of(barrier), observations).thenApply(summary -> {
-                equal(row.path("expected"), json.valueToTree(summary.get("result")), context.executionId());
-                for (Observation observation : observations) {
-                    if (!observation.executionId().equals(context.executionId()) || !observation.traceId().equals(context.traceId())) {
-                        throw new IllegalStateException("JAVA_REFERENCE_MISMATCH:context isolation");
+        // The blocking barrier needs a worker for every participant, independently of the common pool.
+        var executor = Executors.newFixedThreadPool(contextCount);
+        try {
+            for (JsonNode row : scenarios.path("contexts")) {
+                Context context = new Context(text(row, "executionId"), text(row, "traceId"));
+                var observations = new ArrayList<Observation>();
+                Scenario scenario = new Scenario(context.executionId(), int32(row.path("input")), Optional.empty(), false, Optional.empty());
+                contexts.add(execute(projection, scenario, context, Optional.of(barrier), observations, executor).thenApply(summary -> {
+                    equal(row.path("expected"), json.valueToTree(summary.get("result")), context.executionId());
+                    for (Observation observation : observations) {
+                        if (!observation.executionId().equals(context.executionId()) || !observation.traceId().equals(context.traceId())) {
+                            throw new IllegalStateException("JAVA_REFERENCE_MISMATCH:context isolation");
+                        }
                     }
-                }
-                return Map.<String, Object>of("executionId", context.executionId(), "traceId", context.traceId(),
-                    "result", summary.get("result"), "observations", List.copyOf(observations));
-            }));
+                    return Map.<String, Object>of("executionId", context.executionId(), "traceId", context.traceId(),
+                        "result", summary.get("result"), "observations", List.copyOf(observations));
+                }));
+            }
+            CompletableFuture.allOf(contexts.toArray(CompletableFuture[]::new)).join();
+        } finally {
+            executor.shutdownNow();
         }
-        CompletableFuture.allOf(contexts.toArray(CompletableFuture[]::new)).join();
         var report = Map.of("language", "java", "profile", projection.profile(),
             "projectionSha256", digest(projectionPath), "scenariosSha256", digest(scenariosPath),
             "cases", cases, "contexts", contexts.stream().map(CompletableFuture::join).toList());
@@ -92,7 +101,8 @@ final class JavaReferenceProbe {
     }
 
     private CompletableFuture<Map<String, Object>> execute(PolyglotProjectionProbe.Projection projection,
-        Scenario scenario, Context context, Optional<CyclicBarrier> barrier, List<Observation> observations) {
+        Scenario scenario, Context context, Optional<CyclicBarrier> barrier, List<Observation> observations,
+        Executor executor) {
         return CompletableFuture.supplyAsync(() -> {
             var attempts = new LinkedHashMap<String, Integer>();
             projection.steps().forEach(step -> attempts.put(step.id(), 0));
@@ -118,7 +128,7 @@ final class JavaReferenceProbe {
                 }
             }
             return summary("COMPLETED", attempts, Optional.of(value), Optional.empty());
-        });
+        }, executor);
     }
 
     private Map<String, Object> summary(String outcome, Map<String, Integer> attempts,

@@ -224,6 +224,32 @@ class ProjectionTest(unittest.TestCase):
         self.assertNotEqual(0, bad.returncode)
         self.assertIn("JAVA_REFERENCE_MISMATCH:success:", bad.stderr)
 
+    def test_java_reference_overlap_has_enough_workers_and_shuts_down_after_failure(self):
+        scenarios = json.loads((run.HERE / "fixtures/scenarios.json").read_bytes())
+        scenarios["contexts"].append({"executionId": "run-c", "traceId": "trace-c",
+                                      "input": {"value": 0}, "expected": {"value": -1}})
+        with tempfile.TemporaryDirectory(prefix="reference-overlap-", dir=run.TARGET) as temporary:
+            folder = Path(temporary)
+            corpus = folder / "scenarios.json"
+            report = folder / "report.json"
+            # Two common-pool workers would leave the third barrier participant queued.
+            command = ["java", "-Djava.util.concurrent.ForkJoinPool.common.parallelism=2", "-cp", self.prepared.classpath,
+                       "JavaReferenceProbe", str(run.HERE / "generated/projection.json"), str(corpus), str(report)]
+            corpus.write_text(json.dumps(scenarios))
+            completed = subprocess.run(command, text=True, capture_output=True, timeout=15)
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertEqual(["run-a", "run-b", "run-c"],
+                             [row["executionId"] for row in json.loads(report.read_bytes())["contexts"]])
+
+            # Fail inside an overlapping future, after the barrier releases. The JVM must exit.
+            report.unlink()
+            scenarios["contexts"][-1]["expected"]["value"] = 0
+            corpus.write_text(json.dumps(scenarios))
+            failed = subprocess.run(command, text=True, capture_output=True, timeout=15)
+            self.assertNotEqual(0, failed.returncode)
+            self.assertIn("JAVA_REFERENCE_MISMATCH:run-c:", failed.stderr)
+            self.assertFalse(report.exists())
+
     def test_configuration_numbers_preserve_exact_value(self):
         # Profile configuration uses exact numerical value, unlike int32 data's lexical rules.
         raw = json.dumps(self.bindings).replace('"schemaVersion": 1', '"schemaVersion": 1.0')
