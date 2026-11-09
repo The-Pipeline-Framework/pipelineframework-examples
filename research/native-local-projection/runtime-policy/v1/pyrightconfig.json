@@ -1,0 +1,6 @@
+{
+  "include": ["authored.py", "generated/baseline/models.py", "../../business.py"],
+  "extraPaths": ["../.."],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "strict"
+}

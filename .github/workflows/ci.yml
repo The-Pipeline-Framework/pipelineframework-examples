@@ -9,6 +9,28 @@ permissions:
   contents: read
 
 jobs:
+  polyglot-projection-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-path: ${{ github.workspace }}/.m2/repository
+      - name: Generate research projection into temporary output
+        # Keep committed outputs untouched so the following byte-for-byte drift checks can fail.
+        run: python3 research/polyglot-projection-v0/run.py --output target/polyglot-projection-v0/ci-generated
+      - name: Check closed profile, generated drift and Java reference
+        run: |
+          python3 -m venv target/polyglot-projection-v0/test-venv
+          target/polyglot-projection-v0/test-venv/bin/python -m pip install -r research/polyglot-projection-v0/requirements-test.txt
+          target/polyglot-projection-v0/test-venv/bin/python -B -m unittest discover -s research/polyglot-projection-v0 -p 'test_*.py'
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -32,3 +54,50 @@ jobs:
         run: python3 -m unittest discover -s restaurant-approval/self-host -p 'test_*.py'
       - name: Verify examples
         run: ./mvnw clean verify -U -Dgpg.skip -Dquarkus.http.test-port=0 -Dquarkus.grpc.server.test-port=0 -Dmaven.repo.local="$GITHUB_WORKSPACE/.m2/repository"
+
+  native-local-projection:
+    # Standalone research fixture: consumes explicit compiler output, no Maven candidate dependencies.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: research/native-local-projection
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node 22
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22.23.4'
+          cache: npm
+          cache-dependency-path: research/native-local-projection/package-lock.json
+      - name: Install pinned type checkers
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify native LOCAL journeys and pinned compiler artifacts
+        run: npm test
+
+  released-java-unary-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Java 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Node 22
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22.23.4'
+      - name: Compare released Java and native unary policy
+        working-directory: research/native-local-projection
+        run: python3 -B runtime-policy/check_runtime_policy.py
+      - name: Qualify the explicit unary policy binding
+        working-directory: research/native-local-projection
+        run: python3 -B runtime-policy/v1/check_policy_binding.py
