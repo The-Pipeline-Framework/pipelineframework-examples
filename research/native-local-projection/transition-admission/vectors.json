@@ -21,7 +21,7 @@
     "artifactId": "unary-projection",
     "artifactDigest": "ba63ead36ced44f6dd969308bcc07a81d43edffb61af9802b24f281ae289266c",
     "payloadEncodings": [
-      "json"
+      "application/tpf-transition-envelope+json"
     ],
     "workerProtocols": [
       "rest"
@@ -770,6 +770,38 @@
         "physicalRequests": 1,
         "coordinatorDeliveries": 0,
         "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "bare-json-outer",
+      "capability": {
+        "payloadEncodings": [
+          "json"
+        ]
+      },
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "UNVERIFIED_WORKER"
+        ],
+        "physicalRequests": 0,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 0,
         "payloadReads": 0,
         "attempts": {
           "A": 0,

@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 const PROFILE = 'tpf-polyglot-transition-admission/1';
 const POLICY = 'tpf-polyglot-unary-policy/1';
+const OUTER_ENCODING = 'application/tpf-transition-envelope+json';
 const ENCODING = 'tpf-polyglot-research-json/1';
 const ROUTE = '/pipeline/worker/transitions/execute';
 const IDENTITY = ['pipelineId', 'contractVersion', 'releaseVersion'];
@@ -79,7 +80,7 @@ class Transcript {
   verifyBinding() {
     const capability = this.capability;
     if (capability.protocolVersion !== '1' || capability.providerName !== 'rest'
-        || !capability.workerProtocols.includes('rest') || !capability.payloadEncodings.includes('json')
+        || !capability.workerProtocols.includes('rest') || !capability.payloadEncodings.includes(OUTER_ENCODING)
         || !matches(capability, this.target, [...IDENTITY, ...ARTIFACT])) return 'UNVERIFIED_WORKER';
     if (this.grant.profile !== POLICY) return 'UNSUPPORTED_POLICY_PROFILE';
     if (this.grant.artifactDigest !== this.target.artifactDigest

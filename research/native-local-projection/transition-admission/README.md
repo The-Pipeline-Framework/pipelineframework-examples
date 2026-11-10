@@ -34,8 +34,11 @@ The released REST resource checks freshness and signature, then consumes the
 nonce before parsing the command envelope. The worker service checks the
 pipeline, contract and release before decoding the application payload. Registered
 REST selection checks the runnable artifact identity and digest at the coordinator.
-The capability advertisement describes the outer envelope encoding. The command
-carries the inner payload encoding and type. These checks have separate meanings.
+The capability advertisement uses the released outer envelope encoding
+`application/tpf-transition-envelope+json`. A bare `json` advertisement rejects
+before dispatch. The signed receive case rejects the candidate inner payload
+encoding when it appears in the outer advertisement. The command carries the
+inner payload encoding and type.
 [REST resource](https://github.com/The-Pipeline-Framework/pipelineframework-runtime/blob/60dce3e400f51656631230ab9fe910ecb9a6c972/runtime/src/main/java/org/pipelineframework/orchestrator/RestTransitionWorkerResource.java#L83-L211)
 · [Worker execution](https://github.com/The-Pipeline-Framework/pipelineframework-runtime/blob/60dce3e400f51656631230ab9fe910ecb9a6c972/runtime/src/main/java/org/pipelineframework/PipelineExecutionService.java#L497-L509)
 · [Registered selection](https://github.com/The-Pipeline-Framework/pipelineframework-runtime/blob/60dce3e400f51656631230ab9fe910ecb9a6c972/runtime/src/main/java/org/pipelineframework/orchestrator/RegisteredRestWorkerTargets.java#L114-L200)
