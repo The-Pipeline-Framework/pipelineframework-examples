@@ -1,0 +1,1491 @@
+{
+  "schemaVersion": 1,
+  "profile": "tpf-polyglot-transition-admission/1",
+  "now": "2026-11-09T19:00:00Z",
+  "toleranceSeconds": 30,
+  "secret": "public-research-fixture-key",
+  "target": {
+    "tenantId": "tenant-proof",
+    "pipelineId": "polyglot-abc",
+    "contractVersion": "contract-research",
+    "releaseVersion": "release-research",
+    "artifactId": "unary-projection",
+    "artifactDigest": "ba63ead36ced44f6dd969308bcc07a81d43edffb61af9802b24f281ae289266c"
+  },
+  "capability": {
+    "protocolVersion": "1",
+    "providerName": "rest",
+    "pipelineId": "polyglot-abc",
+    "contractVersion": "contract-research",
+    "releaseVersion": "release-research",
+    "artifactId": "unary-projection",
+    "artifactDigest": "ba63ead36ced44f6dd969308bcc07a81d43edffb61af9802b24f281ae289266c",
+    "payloadEncodings": [
+      "json"
+    ],
+    "workerProtocols": [
+      "rest"
+    ]
+  },
+  "grant": {
+    "profile": "tpf-polyglot-unary-policy/1",
+    "artifactDigest": "ba63ead36ced44f6dd969308bcc07a81d43edffb61af9802b24f281ae289266c",
+    "payloadEncoding": "tpf-polyglot-research-json/1",
+    "payloadTypeId": "ProbeValue"
+  },
+  "attempts": {
+    "original": {
+      "attempt": 1,
+      "executionVersion": 7,
+      "transitionKey": "execution-proof:0:1",
+      "executionId": "execution-proof"
+    },
+    "redrive": {
+      "attempt": 2,
+      "executionVersion": 11,
+      "transitionKey": "execution-proof:0:2",
+      "executionId": "execution-proof"
+    }
+  },
+  "frames": {
+    "original": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "original",
+      "signature": "4b341186702ee3fedd9b181a688065e7211603c86349bf0bebceeda2d4f20cba",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "redrive": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "redrive",
+      "signature": "2349879c657462dbe36d51e5e123c75c2fecd300867b10154c700a9b9860a335",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":2,\"resultShape\":\"SINGLE\",\"executionVersion\":11,\"transitionKey\":\"execution-proof:0:2\",\"traceId\":\"execution-proof:0:2\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "tampered": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "original",
+      "signature": "4b341186702ee3fedd9b181a688065e7211603c86349bf0bebceeda2d4f20cba",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":4}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "expired": {
+      "timestamp": "2026-11-09T18:59:29Z",
+      "nonce": "expired",
+      "signature": "8714d88651ac0291d3e6926cb8697c62f8b04f7636c3cd56e26349e4edf874a5",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "future": {
+      "timestamp": "2026-11-09T19:00:31Z",
+      "nonce": "future",
+      "signature": "25bc13d3c65854d83463fa9e6ffc6a9f2d29e8daafed6cd7c4b3b0e195375f32",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "bad-timestamp": {
+      "timestamp": "yesterday",
+      "nonce": "bad-timestamp",
+      "signature": "346239c3ac6e9e79600d2f485ef266c9d7195b5103e1e76c5dabe94dc6c55e03",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "missing-signature": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "original",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "invalid-envelope": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "invalid-envelope",
+      "signature": "de2365cd7c991fd443ab45ec378ab5ceab0ba7cd8a2a2956ce4cbd3a2332aabe",
+      "body": "{"
+    },
+    "wrong-tenant": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "wrong-tenant",
+      "signature": "f0bc1314c0220681c1679248266c6d40b4f30841136aa5c7208c85e354f53596",
+      "body": "{\"tenantId\":\"tenant-other\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "wrong-release": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "wrong-release",
+      "signature": "1332c57efd731f7a0644f7767919468c4652a288c5c861da90b15b9da5ab14e1",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-other\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "wrong-contract": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "wrong-contract",
+      "signature": "a7540bb7cc55b9738badbef9fb50fdcb5467ca5211b062a8bd9d9861d1071c3c",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-other\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "wrong-pipeline": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "wrong-pipeline",
+      "signature": "2bdcf8337c05bc6b7580127cd208ba81ad03c8f914ab9a88d10b5acdf52a77f5",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"pipeline-other\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "wrong-range": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "wrong-range",
+      "signature": "e09c77a481d1ab70bbd0248d79edb23512fa500a0bba03baf75983c2a35bb887",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "legacy-payload": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "legacy-payload",
+      "signature": "4c81fb7c69d9477a0d7e17131c4549e50f69abff61bd33836fc91fdc0cb9a8f7",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"java.lang.Integer\",\"payloadEncoding\":\"json\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "wrong-type": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "wrong-type",
+      "signature": "e384823329cee04a514965da0cb72a6b864725b2ad287e7d7276ce5666099893",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"other.Value\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "authority-field": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "authority-field",
+      "signature": "7967d44d5f482a02170c4c9491daefc0045b6d77125af320aa8a06489f7bc1a3",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1,\"providerCredentials\":\"forbidden\"}"
+    },
+    "invalid-payload": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "invalid-payload",
+      "signature": "d2ed7dadbaba003ff505b9a1e00a80ddd23db3ad2be2cae026e43634971e93d5",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":\\\"3\\\"}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "no-release": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "no-release",
+      "signature": "7807bb929542132bc99161acf1f9c1551dd7f15bf2c7dc68a1c44c06c3d49b00",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "blank-execution": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "blank-execution",
+      "signature": "51a45ca2ebc97266228beaba0fdcbcbe6e661f9de97fcb10f7ee9bed80e672c7",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\" \\t\\r\\n\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "blank-trace": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "blank-trace",
+      "signature": "b9a81b465e59cb1ea767fe61ca9ba7b1b3501b3a3169d14d11a1995443730f76",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"\\t \",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "non-ascii-context": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "non-ascii-context",
+      "signature": "2d2fdcf89ea2edc9b911d3499fdb91a49e8efc7ae771647f08286eed292cbae4",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"\u00a0\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"\u2003\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "targeted-replay": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "targeted-replay",
+      "signature": "d994035c28a4cef0623a9c788cd107feac88517c444f899e13fc15d85e3f50e1",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":1}"
+    },
+    "substituted-execution": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "substituted-execution",
+      "signature": "d7231542833d3f2c53f7f8673544efef33ebcb758ffb3b7c3db4559effc38aea",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-substituted\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    },
+    "reused-redrive-claim": {
+      "timestamp": "2026-11-09T19:00:00Z",
+      "nonce": "reused-redrive-claim",
+      "signature": "e5fa4f6d1c93a989aa38225a5bbb514184bcd18408cccf70ca0a765bf60ebf56",
+      "body": "{\"tenantId\":\"tenant-proof\",\"executionId\":\"execution-proof\",\"pipelineId\":\"polyglot-abc\",\"contractVersion\":\"contract-research\",\"releaseVersion\":\"release-research\",\"currentStepIndex\":0,\"stopBeforeStepIndex\":-1,\"attempt\":1,\"resultShape\":\"SINGLE\",\"executionVersion\":7,\"transitionKey\":\"execution-proof:0:1\",\"traceId\":\"execution-proof:0:1\",\"payloadTypeId\":\"ProbeValue\",\"payloadEncoding\":\"tpf-polyglot-research-json/1\",\"payload\":\"{\\\"value\\\":3}\",\"redriveIntent\":\"REPLAY\",\"redriveStepIndex\":-1}"
+    }
+  },
+  "cases": [
+    {
+      "id": "verified-worker",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "COMPLETED"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 2,
+          "C": 1
+        },
+        "bInputs": [
+          4,
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          }
+        ],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "tampered",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "tampered"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "BAD_SIGNATURE"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 0,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "expired",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "expired"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "TIMESTAMP_OUTSIDE_WINDOW"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 0,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "future",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "future"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "TIMESTAMP_OUTSIDE_WINDOW"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 0,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "bad-timestamp",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "bad-timestamp"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "INVALID_TIMESTAMP"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 0,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "missing-signature",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "missing-signature"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "MISSING_AUTH_HEADER"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 0,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "invalid-envelope",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "invalid-envelope"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "INVALID_ENVELOPE"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "wrong-tenant",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "wrong-tenant"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "TENANT_FORBIDDEN"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "wrong-release",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "wrong-release"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "IDENTITY_MISMATCH"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "wrong-contract",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "wrong-contract"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "IDENTITY_MISMATCH"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "wrong-pipeline",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "wrong-pipeline"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "IDENTITY_MISMATCH"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "wrong-range",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "wrong-range"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "UNSUPPORTED_RANGE"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "legacy-payload",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "legacy-payload"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "UNSUPPORTED_PAYLOAD_ENCODING"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "wrong-type",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "wrong-type"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "UNSUPPORTED_PAYLOAD_TYPE"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "authority-field",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "authority-field"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "INVALID_ENVELOPE"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "no-release",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "no-release"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "INVALID_ENVELOPE"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "invalid-payload",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "invalid-payload"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "INVALID_PAYLOAD"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "unknown-profile",
+      "grant": {
+        "profile": "future/99"
+      },
+      "events": [
+        {
+          "op": "receive",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "UNSUPPORTED_POLICY_PROFILE"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "missing-artifact-pin",
+      "capability": {
+        "artifactDigest": ""
+      },
+      "events": [
+        {
+          "op": "receive",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "UNVERIFIED_WORKER"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "wrong-artifact-pin",
+      "capability": {
+        "artifactId": "wrong-artifact"
+      },
+      "events": [
+        {
+          "op": "receive",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "UNVERIFIED_WORKER"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "unverified-protocol",
+      "capability": {
+        "workerProtocols": [
+          "grpc"
+        ]
+      },
+      "events": [
+        {
+          "op": "receive",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "UNVERIFIED_WORKER"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "outer-inner-encoding",
+      "capability": {
+        "payloadEncodings": [
+          "tpf-polyglot-research-json/1"
+        ]
+      },
+      "events": [
+        {
+          "op": "receive",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "UNVERIFIED_WORKER"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "substituted-projection",
+      "projection": "changed-order",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "ARTIFACT_DIGEST_MISMATCH"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "nonce-authentication-order",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "tampered"
+        },
+        {
+          "op": "receive",
+          "frame": "original"
+        },
+        {
+          "op": "receive",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "BAD_SIGNATURE",
+          "COMPLETED",
+          "NONCE_REPLAY"
+        ],
+        "physicalRequests": 3,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 2,
+          "C": 1
+        },
+        "bInputs": [
+          4,
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          }
+        ],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "nonce-consumed-before-envelope-parse",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "invalid-envelope"
+        },
+        {
+          "op": "receive",
+          "frame": "invalid-envelope"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "INVALID_ENVELOPE",
+          "NONCE_REPLAY"
+        ],
+        "physicalRequests": 2,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "unknown-outcome-and-authorized-redrive",
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "lose-response"
+        },
+        {
+          "op": "dispatch",
+          "frame": "redrive"
+        },
+        {
+          "op": "authorize-redrive",
+          "authority": "operator",
+          "prior": "original",
+          "next": "redrive"
+        },
+        {
+          "op": "confirm-disposition",
+          "authority": "worker-advertisement",
+          "frame": "original",
+          "disposition": "ORIGINAL_ATTEMPT_INACTIVE"
+        },
+        {
+          "op": "confirm-disposition",
+          "authority": "independent-observer",
+          "frame": "original",
+          "disposition": "WORKER_HEALTHY"
+        },
+        {
+          "op": "confirm-disposition",
+          "authority": "independent-observer",
+          "frame": "original",
+          "disposition": "ORIGINAL_ATTEMPT_INACTIVE"
+        },
+        {
+          "op": "authorize-redrive",
+          "authority": "application",
+          "prior": "original",
+          "next": "redrive"
+        },
+        {
+          "op": "authorize-redrive",
+          "authority": "operator",
+          "prior": "redrive",
+          "next": "redrive"
+        },
+        {
+          "op": "authorize-redrive",
+          "authority": "operator",
+          "prior": "original",
+          "next": "redrive"
+        },
+        {
+          "op": "dispatch",
+          "frame": "redrive"
+        },
+        {
+          "op": "complete",
+          "frame": "original"
+        },
+        {
+          "op": "complete",
+          "frame": "redrive"
+        },
+        {
+          "op": "complete",
+          "frame": "redrive"
+        },
+        {
+          "op": "complete",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "REMOTE_OUTCOME_UNKNOWN",
+          "REDRIVE_NOT_AUTHORIZED",
+          "DISPOSITION_REQUIRED",
+          "DISPOSITION_UNVERIFIED",
+          "DISPOSITION_UNVERIFIED",
+          "DISPOSITION_CONFIRMED",
+          "REDRIVE_FORBIDDEN",
+          "REDRIVE_BINDING_MISMATCH",
+          "REDRIVE_AUTHORIZED",
+          "DISPATCHED",
+          "STALE_COMPLETION",
+          "SETTLED",
+          "ALREADY_SETTLED",
+          "STALE_COMPLETION"
+        ],
+        "physicalRequests": 2,
+        "coordinatorDeliveries": 2,
+        "envelopeReads": 2,
+        "payloadReads": 2,
+        "attempts": {
+          "A": 2,
+          "B": 4,
+          "C": 2
+        },
+        "bInputs": [
+          4,
+          4,
+          4,
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          },
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:2"
+          }
+        ],
+        "settlements": [
+          {
+            "transitionKey": "execution-proof:0:2",
+            "executionVersion": 11,
+            "value": 5
+          }
+        ],
+        "state": "SETTLED"
+      }
+    },
+    {
+      "id": "normal-settlement",
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "complete",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "SETTLED"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 1,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 2,
+          "C": 1
+        },
+        "bInputs": [
+          4,
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          }
+        ],
+        "settlements": [
+          {
+            "transitionKey": "execution-proof:0:1",
+            "executionVersion": 7,
+            "value": 5
+          }
+        ],
+        "state": "SETTLED"
+      }
+    },
+    {
+      "id": "incompatible-worker-result",
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "complete",
+          "frame": "original",
+          "response": {
+            "outcome": "FAILED",
+            "outputPayloads": [],
+            "failure": {
+              "failureClass": "java.lang.IllegalStateException",
+              "message": "legacy runtime failure"
+            },
+            "terminalOutputPublished": false,
+            "terminalInputPassthrough": false
+          }
+        },
+        {
+          "op": "complete",
+          "frame": "original",
+          "response": {
+            "outcome": "COMPLETED",
+            "outputPayloads": [
+              {
+                "payloadTypeId": "java.lang.Integer",
+                "payloadEncoding": "json",
+                "payload": "5"
+              }
+            ],
+            "terminalOutputPublished": false,
+            "terminalInputPassthrough": false
+          }
+        },
+        {
+          "op": "complete",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "UNSUPPORTED_WORKER_OUTCOME",
+          "UNSUPPORTED_RESULT_ENCODING",
+          "SETTLED"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 1,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 2,
+          "C": 1
+        },
+        "bInputs": [
+          4,
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          }
+        ],
+        "settlements": [
+          {
+            "transitionKey": "execution-proof:0:1",
+            "executionVersion": 7,
+            "value": 5
+          }
+        ],
+        "state": "SETTLED"
+      }
+    },
+    {
+      "id": "blank-execution",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "blank-execution"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "INVALID_CONTEXT"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "blank-trace",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "blank-trace"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "INVALID_CONTEXT"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "targeted-replay",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "targeted-replay"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "UNSUPPORTED_RANGE"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "non-ascii-context",
+      "events": [
+        {
+          "op": "receive",
+          "frame": "non-ascii-context"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "COMPLETED"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 2,
+          "C": 1
+        },
+        "bInputs": [
+          4,
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "\u00a0",
+            "traceId": "\u2003"
+          }
+        ],
+        "settlements": [],
+        "state": "READY"
+      }
+    },
+    {
+      "id": "wrong-claimed-execution",
+      "requests": {
+        "original": "substituted-execution"
+      },
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "ATTEMPT_MISMATCH"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 1,
+        "envelopeReads": 1,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "IN_FLIGHT"
+      }
+    },
+    {
+      "id": "one-redrive-only",
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "lose-response"
+        },
+        {
+          "op": "confirm-disposition",
+          "authority": "independent-observer",
+          "frame": "original",
+          "disposition": "ORIGINAL_ATTEMPT_INACTIVE"
+        },
+        {
+          "op": "authorize-redrive",
+          "authority": "operator",
+          "prior": "original",
+          "next": "redrive"
+        },
+        {
+          "op": "dispatch",
+          "frame": "redrive"
+        },
+        {
+          "op": "lose-response"
+        },
+        {
+          "op": "authorize-redrive",
+          "authority": "operator",
+          "prior": "redrive",
+          "next": "redrive"
+        },
+        {
+          "op": "dispatch",
+          "frame": "redrive"
+        },
+        {
+          "op": "confirm-disposition",
+          "authority": "independent-observer",
+          "frame": "redrive",
+          "disposition": "ORIGINAL_ATTEMPT_INACTIVE"
+        },
+        {
+          "op": "authorize-redrive",
+          "authority": "operator",
+          "prior": "redrive",
+          "next": "redrive"
+        },
+        {
+          "op": "dispatch",
+          "frame": "redrive"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "REMOTE_OUTCOME_UNKNOWN",
+          "DISPOSITION_CONFIRMED",
+          "REDRIVE_AUTHORIZED",
+          "DISPATCHED",
+          "REMOTE_OUTCOME_UNKNOWN",
+          "REDRIVE_NOT_AUTHORIZED",
+          "REDRIVE_NOT_AUTHORIZED",
+          "DISPOSITION_CONFIRMED",
+          "REDRIVE_NOT_AUTHORIZED",
+          "REDRIVE_NOT_AUTHORIZED"
+        ],
+        "physicalRequests": 2,
+        "coordinatorDeliveries": 2,
+        "envelopeReads": 2,
+        "payloadReads": 2,
+        "attempts": {
+          "A": 2,
+          "B": 4,
+          "C": 2
+        },
+        "bInputs": [
+          4,
+          4,
+          4,
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          },
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:2"
+          }
+        ],
+        "settlements": [],
+        "state": "REMOTE_OUTCOME_UNKNOWN"
+      }
+    },
+    {
+      "id": "stale-redrive-claim",
+      "claims": {
+        "redrive": {
+          "attempt": 1,
+          "executionVersion": 7,
+          "transitionKey": "execution-proof:0:1",
+          "executionId": "execution-proof"
+        }
+      },
+      "requests": {
+        "redrive": "reused-redrive-claim"
+      },
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "lose-response"
+        },
+        {
+          "op": "confirm-disposition",
+          "authority": "independent-observer",
+          "frame": "original",
+          "disposition": "ORIGINAL_ATTEMPT_INACTIVE"
+        },
+        {
+          "op": "authorize-redrive",
+          "authority": "operator",
+          "prior": "original",
+          "next": "redrive"
+        },
+        {
+          "op": "dispatch",
+          "frame": "redrive"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "REMOTE_OUTCOME_UNKNOWN",
+          "DISPOSITION_CONFIRMED",
+          "REDRIVE_BINDING_MISMATCH",
+          "REDRIVE_NOT_AUTHORIZED"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 1,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 2,
+          "C": 1
+        },
+        "bInputs": [
+          4,
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          }
+        ],
+        "settlements": [],
+        "state": "REMOTE_OUTCOME_UNKNOWN"
+      }
+    }
+  ]
+}
