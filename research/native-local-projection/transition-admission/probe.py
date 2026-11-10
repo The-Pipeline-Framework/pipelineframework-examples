@@ -12,6 +12,12 @@ PROFILE = 'tpf-polyglot-transition-admission/1'
 POLICY = 'tpf-polyglot-unary-policy/1'
 OUTER_ENCODING = 'application/tpf-transition-envelope+json'
 ENCODING = 'tpf-polyglot-research-json/1'
+FAILED_RESULT_PROFILE = 'tpf-polyglot-failed-result/1'
+FAILURE_DIAGNOSTICS = {
+    'TRANSIENT_EXHAUSTED': 'Local retry budget exhausted',
+    'BUSINESS_REJECTION': 'Business function rejected input',
+    'UNCLASSIFIED': 'Unclassified business function failure',
+}
 ROUTE = '/pipeline/worker/transitions/execute'
 IDENTITY = ('pipelineId', 'contractVersion', 'releaseVersion')
 ARTIFACT = ('artifactId', 'artifactDigest')
@@ -51,6 +57,9 @@ class Transcript:
         self.grant = corpus['grant'] | case.get('grant', {})
         self.claims = corpus['attempts'] | case.get('claims', {})
         self.requests = case.get('requests', {})
+        self.worker_faults = case.get('workerFaults', {})
+        self.selected_result_profile = None
+        self.result_decoders = dict(released=0, portableFailed=0)
         name = case.get('projection', 'downstream-retry')
         if name not in ('downstream-retry', 'changed-order'):
             raise ValueError('unknown projection fixture')
@@ -63,6 +72,8 @@ class Transcript:
         self.report = dict(diagnostics=[], physicalRequests=0, coordinatorDeliveries=0, envelopeReads=0,
                            payloadReads=0, attempts=dict(A=0, B=0, C=0), bInputs=[], contexts=[],
                            settlements=[], state='READY')
+        if case.get('observeResultDecoders'):
+            self.report['resultDecoders'] = self.result_decoders
 
     def authenticate(self, frame):
         if any(not isinstance(frame.get(key), str) or not frame[key].strip()
@@ -96,6 +107,12 @@ class Transcript:
         if (self.grant.get('artifactDigest') != self.target['artifactDigest']
                 or self.grant.get('payloadEncoding') != ENCODING or self.grant.get('payloadTypeId') != 'ProbeValue'):
             return 'UNVERIFIED_POLICY_BINDING'
+        if 'resultProfile' in self.grant:
+            selected = self.grant['resultProfile']
+            if not isinstance(selected, str):
+                return 'MALFORMED_RESULT_PROFILE'
+            if selected != FAILED_RESULT_PROFILE:
+                return 'UNSUPPORTED_RESULT_PROFILE'
         if hashlib.sha256(self.projection).hexdigest() != self.target['artifactDigest']:
             return 'ARTIFACT_DIGEST_MISMATCH'
         return 'OK'
@@ -137,17 +154,15 @@ class Transcript:
         if (not isinstance(payload, dict) or set(payload) != {'value'}
                 or type(payload['value']) is not int or payload['value'] != 3):
             return 'INVALID_PAYLOAD'
-        result = self.run_fixture(payload['value'], envelope)
+        fault = self.worker_faults.get(name) if claim is not None else None
+        if fault is not None and self.selected_result_profile != FAILED_RESULT_PROFILE:
+            raise ValueError('modeled worker fault requires the selected failed result profile')
+        result = self.run_fixture(payload['value'], envelope, fault)
         if claim is not None:
-            self.replies[name] = {
-                'outcome': 'COMPLETED',
-                'outputPayloads': [{'payloadTypeId': 'ProbeValue', 'payloadEncoding': ENCODING,
-                                    'payload': json.dumps({'value': result})}],
-                'terminalOutputPublished': False, 'terminalInputPassthrough': False,
-            }
-        return 'COMPLETED'
+            self.replies[name] = result
+        return result['outcome']
 
-    def run_fixture(self, value, envelope):
+    def run_fixture(self, value, envelope, fault):
         # Model one admitted worker's observations after a first B failure.
         # The existing LOCAL binding supplies the live execution evidence.
         context = {key: envelope[key] for key in ('executionId', 'traceId')}
@@ -157,12 +172,33 @@ class Transcript:
         self.report['attempts']['B'] += 1
         self.report['bInputs'].append(value_for_b)
         projection = json.loads(self.projection)
-        if projection['policy']['retryOwner'] != 'LOCAL_SHELL' or projection['steps'][1]['retryLimit'] != 1:
+        step = projection['steps'][1]
+        if projection['policy']['retryOwner'] != 'LOCAL_SHELL' or step['retryLimit'] != 1:
             raise ValueError('worker fixture lacks its B retry policy')
+        if fault == 'BUSINESS_REJECTION':
+            return self.failed_result('BUSINESS_REJECTION', step['id'])
+        if fault == 'HOST_THROW':
+            return self.failed_result('UNCLASSIFIED', step['id'])
         self.report['attempts']['B'] += 1
         self.report['bInputs'].append(value_for_b)
+        if fault == 'TRANSIENT':
+            return self.failed_result('TRANSIENT_EXHAUSTED', step['id'])
+        if fault is not None:
+            raise ValueError('unknown modeled worker fault')
         self.report['attempts']['C'] += 1
-        return value_for_b * 2 - 3
+        return {
+            'outcome': 'COMPLETED',
+            'outputPayloads': [{'payloadTypeId': 'ProbeValue', 'payloadEncoding': ENCODING,
+                                'payload': json.dumps({'value': value_for_b * 2 - 3})}],
+            'terminalOutputPublished': False, 'terminalInputPassthrough': False,
+        }
+
+    def failed_result(self, code, step_id):
+        return {
+            'resultProfile': self.selected_result_profile,
+            'outcome': 'FAILED',
+            'failure': {'code': code, 'stepId': step_id, 'diagnostic': FAILURE_DIAGNOSTICS[code]},
+        }
 
     def dispatch(self, name):
         state = self.report['state']
@@ -176,10 +212,11 @@ class Transcript:
         self.authorized = False
         self.disposition = False
         self.current = name
+        self.selected_result_profile = self.grant.get('resultProfile')
         self.report['state'] = 'IN_FLIGHT'
         self.report['coordinatorDeliveries'] += 1
         received = self.receive(name, self.claims[name])
-        return 'DISPATCHED' if received == 'COMPLETED' else received
+        return 'DISPATCHED' if received in ('COMPLETED', 'FAILED') else received
 
     def complete(self, event):
         name = event['frame']
@@ -192,6 +229,13 @@ class Transcript:
         response = event.get('response', self.replies[name])
         if not isinstance(response, dict):
             return 'INVALID_WORKER_RESULT'
+        if 'resultProfile' in response:
+            if (self.selected_result_profile != FAILED_RESULT_PROFILE
+                    or response['resultProfile'] != self.selected_result_profile):
+                return 'RESULT_PROFILE_MISMATCH'
+            return self.complete_failure(name, response)
+        if response.get('outcome') == 'FAILED' and self.selected_result_profile == FAILED_RESULT_PROFILE:
+            return 'RESULT_PROFILE_MISMATCH'
         if response.get('outcome') != 'COMPLETED':
             return 'UNSUPPORTED_WORKER_OUTCOME'
         outputs = response.get('outputPayloads')
@@ -204,6 +248,7 @@ class Transcript:
         output = outputs[0]
         if output.get('payloadEncoding') != ENCODING or output.get('payloadTypeId') != 'ProbeValue':
             return 'UNSUPPORTED_RESULT_ENCODING'
+        self.result_decoders['released'] += 1
         try:
             value = json.loads(output.get('payload', ''))
         except (ValueError, TypeError):
@@ -218,6 +263,27 @@ class Transcript:
         self.report['state'] = 'SETTLED'
         return 'SETTLED'
 
+    def complete_failure(self, name, response):
+        self.result_decoders['portableFailed'] += 1
+        failure = response.get('failure')
+        if (set(response) != {'resultProfile', 'outcome', 'failure'} or response['outcome'] != 'FAILED'
+                or not isinstance(failure, dict) or set(failure) != {'code', 'stepId', 'diagnostic'}
+                or not all(isinstance(value, str) and value for value in failure.values())):
+            return 'INVALID_PORTABLE_FAILURE'
+        code = failure['code']
+        if code not in FAILURE_DIAGNOSTICS:
+            return 'UNKNOWN_FAILURE_CLASSIFICATION'
+        if failure['diagnostic'] != FAILURE_DIAGNOSTICS[code]:
+            return 'UNSAFE_FAILURE_DIAGNOSTIC'
+        if not any(step['id'] == failure['stepId'] for step in json.loads(self.projection)['steps']):
+            return 'UNKNOWN_FAILED_STEP'
+        pin = self.claims[name]
+        self.report['settlements'].append(dict(transitionKey=pin['transitionKey'],
+                                               executionVersion=pin['executionVersion'],
+                                               failure=failure))
+        self.report['state'] = 'SETTLED'
+        return 'SETTLED_FAILED'
+
     def apply(self, event):
         op = event['op']
         if op == 'receive':
@@ -226,6 +292,9 @@ class Transcript:
             return self.dispatch(event['frame'])
         if op == 'complete':
             return self.complete(event)
+        if op == 'change-result-grant':
+            self.grant['resultProfile'] = event['profile']
+            return 'HOST_RESULT_GRANT_CHANGED'
         if op == 'lose-response' and self.report['state'] == 'IN_FLIGHT':
             self.report['state'] = 'REMOTE_OUTCOME_UNKNOWN'
             return 'REMOTE_OUTCOME_UNKNOWN'

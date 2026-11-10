@@ -89,6 +89,36 @@ process. Response association comes from the modeled dispatch context. Deployed
 REST authentication, transport response protection, durable recovery and actual
 distributed execution remain separate qualification gates.
 
+## Candidate portable failed result
+
+The optional `resultProfile` in the trusted fixture grant selects
+`tpf-polyglot-failed-result/1` before dispatch. The transcript pins that selection
+to the attempt. A later change to the host grant leaves the pinned selection
+in place. The response tag must agree with it, and correlation is checked before
+selecting a decoder. The released `COMPLETED` representation remains the success
+path with either grant.
+
+The [failure schema](failed-result.schema.json) admits `FAILED` with a closed
+classification, a logical step ID and its fixed diagnostic. The failed step must
+belong to the admitted whole-bundle projection. The worker model maps an exhausted
+local `TRANSIENT` at B to `TRANSIENT_EXHAUSTED` with A1/B2/C0 observations.
+Business rejection and the modeled host throw map to `BUSINESS_REJECTION` and
+`UNCLASSIFIED`, each with A1/B1/C0. The live LOCAL binding remains the source
+of actual exception and retry execution evidence.
+
+The coordinator accepts a valid current failure once and retains recovery
+authority. Invalid, incompatible or stale results leave settlement and dispatch
+counts unchanged. Rejecting a malformed response leaves the attempt unresolved.
+The uncertainty transcript records loss separately. The fixed histories count
+portable failure decodes and released decodes separately. An unsupported pairing has no typed
+decode, and a candidate failure has no released decoder call.
+
+The existing [projection test suite](../../polyglot-projection-v0/test_portable_result_schema.py)
+uses its pinned Draft 2020-12 validator to check the schema against fixed results.
+Step membership and attempt authority are semantic checks in the three consumers.
+This candidate selection models one trusted endpoint. Production negotiation,
+response protection and release qualification retain their own decision gates.
+
 ## Compatibility and stopping rule
 
 The fixture format, unary policy profile, worker capability version, inner
