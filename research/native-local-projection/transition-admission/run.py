@@ -24,7 +24,7 @@ CASES = set("""
 verified-worker tampered expired future bad-timestamp missing-signature invalid-envelope
 wrong-tenant wrong-release wrong-contract wrong-pipeline wrong-range legacy-payload wrong-type
 authority-field no-release invalid-payload unknown-profile missing-artifact-pin wrong-artifact-pin
-unverified-protocol outer-inner-encoding substituted-projection nonce-authentication-order
+unverified-protocol bare-json-outer outer-inner-encoding substituted-projection nonce-authentication-order
 nonce-consumed-before-envelope-parse unknown-outcome-and-authorized-redrive normal-settlement
 incompatible-worker-result blank-execution blank-trace non-ascii-context targeted-replay
 wrong-claimed-execution one-redrive-only stale-redrive-claim

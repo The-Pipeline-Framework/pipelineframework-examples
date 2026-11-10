@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.pipelineframework.config.pipeline.PipelineJson;
 import org.pipelineframework.orchestrator.RestTransitionWorkerProtocol;
 import org.pipelineframework.orchestrator.TransitionCommandEnvelope;
+import org.pipelineframework.orchestrator.TransitionPayloadEncoding;
 import org.pipelineframework.orchestrator.TransitionWireResult;
 import org.pipelineframework.orchestrator.TransitionWorkerSignature;
 import org.pipelineframework.orchestrator.worker.PipelineWorkerCapability;
@@ -141,7 +142,7 @@ public final class TransitionAdmissionProbe {
         }
         if (!PipelineWorkerCapability.PROTOCOL_VERSION.equals(advertised.protocolVersion())
             || !"rest".equals(advertised.providerName()) || !advertised.workerProtocols().contains("rest")
-            || !advertised.payloadEncodings().contains("json")) {
+            || !advertised.payloadEncodings().contains(TransitionPayloadEncoding.JSON)) {
             return "UNVERIFIED_WORKER";
         }
         if (!POLICY.equals(text(grant, "profile"))) {
@@ -406,6 +407,11 @@ public final class TransitionAdmissionProbe {
         if (!corpus.path("schemaVersion").isInt() || corpus.path("schemaVersion").asInt() != 1
             || !PROFILE.equals(text(corpus, "profile"))) {
             throw new IllegalArgumentException("unsupported transcript corpus");
+        }
+        JsonNode encodings = corpus.path("capability").path("payloadEncodings");
+        if (!encodings.isArray() || encodings.size() != 1
+            || !TransitionPayloadEncoding.JSON.equals(encodings.path(0).asText())) {
+            throw new IllegalArgumentException("fixture must advertise the released outer envelope encoding");
         }
         for (JsonNode testCase : corpus.path("cases")) {
             JsonNode observed = new TransitionAdmissionProbe(corpus, testCase, Path.of(args[1]))

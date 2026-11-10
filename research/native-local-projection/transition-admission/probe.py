@@ -10,6 +10,7 @@ import sys
 HERE = Path(__file__).resolve().parent
 PROFILE = 'tpf-polyglot-transition-admission/1'
 POLICY = 'tpf-polyglot-unary-policy/1'
+OUTER_ENCODING = 'application/tpf-transition-envelope+json'
 ENCODING = 'tpf-polyglot-research-json/1'
 ROUTE = '/pipeline/worker/transitions/execute'
 IDENTITY = ('pipelineId', 'contractVersion', 'releaseVersion')
@@ -86,7 +87,8 @@ class Transcript:
     def verify_binding(self):
         advertised = self.capability
         if (advertised['protocolVersion'] != '1' or advertised['providerName'] != 'rest'
-                or 'rest' not in advertised['workerProtocols'] or 'json' not in advertised['payloadEncodings']
+                or 'rest' not in advertised['workerProtocols']
+                or OUTER_ENCODING not in advertised['payloadEncodings']
                 or any(advertised.get(key) != self.target[key] for key in IDENTITY + ARTIFACT)):
             return 'UNVERIFIED_WORKER'
         if self.grant.get('profile') != POLICY:
