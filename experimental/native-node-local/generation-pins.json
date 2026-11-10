@@ -1,0 +1,14 @@
+{
+  "baseline": {
+    "run": "42877401995",
+    "receiptSha256": "72f14cccadcbb380da271f988c48106908abde64c3a20e464133bbbc17c038e2"
+  },
+  "changed-order": {
+    "run": "42877158151",
+    "receiptSha256": "4e311e9719b7b15b0ea7fc1303b2deb53898719aa5761be11167fdce45e89c5f"
+  },
+  "project": {
+    "run": "42876799438",
+    "receiptSha256": "834e4cb0d002018c9cdaa655a0ce86ebc78bd4354f3e3646eed0048f63dcea24"
+  }
+}
