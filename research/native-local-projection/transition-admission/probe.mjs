@@ -7,6 +7,12 @@ const PROFILE = 'tpf-polyglot-transition-admission/1';
 const POLICY = 'tpf-polyglot-unary-policy/1';
 const OUTER_ENCODING = 'application/tpf-transition-envelope+json';
 const ENCODING = 'tpf-polyglot-research-json/1';
+const FAILED_RESULT_PROFILE = 'tpf-polyglot-failed-result/1';
+const FAILURE_DIAGNOSTICS = {
+  TRANSIENT_EXHAUSTED: 'Local retry budget exhausted',
+  BUSINESS_REJECTION: 'Business function rejected input',
+  UNCLASSIFIED: 'Unclassified business function failure',
+};
 const ROUTE = '/pipeline/worker/transitions/execute';
 const IDENTITY = ['pipelineId', 'contractVersion', 'releaseVersion'];
 const ARTIFACT = ['artifactId', 'artifactDigest'];
@@ -44,6 +50,9 @@ class Transcript {
     this.grant = { ...corpus.grant, ...testCase.grant };
     this.claims = { ...corpus.attempts, ...testCase.claims };
     this.requests = testCase.requests ?? {};
+    this.workerFaults = testCase.workerFaults ?? {};
+    this.selectedResultProfile = undefined;
+    this.resultDecoders = { released: 0, portableFailed: 0 };
     const name = testCase.projection ?? 'downstream-retry';
     if (!['downstream-retry', 'changed-order'].includes(name)) throw new Error('unknown projection fixture');
     const projection = new URL('../runtime-policy/v1/generated/' + name + '/projection.json', import.meta.url);
@@ -57,6 +66,7 @@ class Transcript {
       payloadReads: 0, attempts: { A: 0, B: 0, C: 0 }, bInputs: [], contexts: [],
       settlements: [], state: 'READY',
     };
+    if (testCase.observeResultDecoders) this.report.resultDecoders = this.resultDecoders;
   }
 
   authenticate(frame) {
@@ -87,6 +97,11 @@ class Transcript {
         || this.grant.payloadEncoding !== ENCODING || this.grant.payloadTypeId !== 'ProbeValue') {
       return 'UNVERIFIED_POLICY_BINDING';
     }
+    if (Object.hasOwn(this.grant, 'resultProfile')) {
+      const selected = this.grant.resultProfile;
+      if (typeof selected !== 'string') return 'MALFORMED_RESULT_PROFILE';
+      if (selected !== FAILED_RESULT_PROFILE) return 'UNSUPPORTED_RESULT_PROFILE';
+    }
     if (sha256(this.projection) !== this.target.artifactDigest) return 'ARTIFACT_DIGEST_MISMATCH';
     return 'OK';
   }
@@ -114,17 +129,16 @@ class Transcript {
     let payload;
     try { payload = JSON.parse(envelope.payload); } catch { return 'INVALID_PAYLOAD'; }
     if (!isObject(payload) || Object.keys(payload).length !== 1 || payload.value !== 3) return 'INVALID_PAYLOAD';
-    const result = this.runFixture(payload.value, envelope);
-    if (claim) this.replies.set(name, {
-      outcome: 'COMPLETED',
-      outputPayloads: [{ payloadTypeId: 'ProbeValue', payloadEncoding: ENCODING,
-        payload: JSON.stringify({ value: result }) }],
-      terminalOutputPublished: false, terminalInputPassthrough: false,
-    });
-    return 'COMPLETED';
+    const fault = claim ? this.workerFaults[name] : undefined;
+    if (fault !== undefined && this.selectedResultProfile !== FAILED_RESULT_PROFILE) {
+      throw new Error('modeled worker fault requires the selected failed result profile');
+    }
+    const result = this.runFixture(payload.value, envelope, fault);
+    if (claim) this.replies.set(name, result);
+    return result.outcome;
   }
 
-  runFixture(value, { executionId, traceId }) {
+  runFixture(value, { executionId, traceId }, fault) {
     // Model the worker's observations after B fails once. Live execution is covered by the LOCAL binding.
     this.report.contexts.push(Object.freeze({ executionId, traceId }));
     this.report.attempts.A++;
@@ -132,13 +146,30 @@ class Transcript {
     this.report.attempts.B++;
     this.report.bInputs.push(bInput);
     const projection = JSON.parse(this.projection);
-    if (projection.policy.retryOwner !== 'LOCAL_SHELL' || projection.steps[1].retryLimit !== 1) {
+    const step = projection.steps[1];
+    if (projection.policy.retryOwner !== 'LOCAL_SHELL' || step.retryLimit !== 1) {
       throw new Error('worker fixture lacks its B retry policy');
     }
+    if (fault === 'BUSINESS_REJECTION') return this.failedResult('BUSINESS_REJECTION', step.id);
+    if (fault === 'HOST_THROW') return this.failedResult('UNCLASSIFIED', step.id);
     this.report.attempts.B++;
     this.report.bInputs.push(bInput);
+    if (fault === 'TRANSIENT') return this.failedResult('TRANSIENT_EXHAUSTED', step.id);
+    if (fault !== undefined) throw new Error('unknown modeled worker fault');
     this.report.attempts.C++;
-    return bInput * 2 - 3;
+    return {
+      outcome: 'COMPLETED',
+      outputPayloads: [{ payloadTypeId: 'ProbeValue', payloadEncoding: ENCODING,
+        payload: JSON.stringify({ value: bInput * 2 - 3 }) }],
+      terminalOutputPublished: false, terminalInputPassthrough: false,
+    };
+  }
+
+  failedResult(code, stepId) {
+    return {
+      resultProfile: this.selectedResultProfile, outcome: 'FAILED',
+      failure: { code, stepId, diagnostic: FAILURE_DIAGNOSTICS[code] },
+    };
   }
 
   dispatch(name) {
@@ -150,10 +181,11 @@ class Transcript {
     this.authorized = false;
     this.disposition = false;
     this.current = name;
+    this.selectedResultProfile = this.grant.resultProfile;
     this.report.state = 'IN_FLIGHT';
     this.report.coordinatorDeliveries++;
     const received = this.receive(name, this.claims[name]);
-    return received === 'COMPLETED' ? 'DISPATCHED' : received;
+    return ['COMPLETED', 'FAILED'].includes(received) ? 'DISPATCHED' : received;
   }
 
   complete(event) {
@@ -163,6 +195,14 @@ class Transcript {
     if (this.report.state !== 'IN_FLIGHT') return 'STALE_COMPLETION';
     const response = Object.hasOwn(event, 'response') ? event.response : this.replies.get(name);
     if (!isObject(response)) return 'INVALID_WORKER_RESULT';
+    if (Object.hasOwn(response, 'resultProfile')) {
+      if (this.selectedResultProfile !== FAILED_RESULT_PROFILE
+          || response.resultProfile !== this.selectedResultProfile) return 'RESULT_PROFILE_MISMATCH';
+      return this.completeFailure(name, response);
+    }
+    if (response.outcome === 'FAILED' && this.selectedResultProfile === FAILED_RESULT_PROFILE) {
+      return 'RESULT_PROFILE_MISMATCH';
+    }
     if (response.outcome !== 'COMPLETED') return 'UNSUPPORTED_WORKER_OUTCOME';
     const outputs = response.outputPayloads;
     if (Object.keys(response).length !== 4 || !Array.isArray(outputs) || outputs.length !== 1
@@ -174,6 +214,7 @@ class Transcript {
     if (output.payloadEncoding !== ENCODING || output.payloadTypeId !== 'ProbeValue') {
       return 'UNSUPPORTED_RESULT_ENCODING';
     }
+    this.resultDecoders.released++;
     let value;
     try { value = JSON.parse(output.payload); } catch { return 'INVALID_WORKER_RESULT'; }
     if (!isObject(value) || Object.keys(value).length !== 1 || !Number.isInteger(value.value)
@@ -186,11 +227,31 @@ class Transcript {
     return 'SETTLED';
   }
 
+  completeFailure(name, response) {
+    this.resultDecoders.portableFailed++;
+    const failure = response.failure;
+    if (Object.keys(response).length !== 3 || response.outcome !== 'FAILED' || !isObject(failure)
+        || Object.keys(failure).length !== 3
+        || !['code', 'stepId', 'diagnostic'].every(key => typeof failure[key] === 'string' && failure[key])) {
+      return 'INVALID_PORTABLE_FAILURE';
+    }
+    if (!Object.hasOwn(FAILURE_DIAGNOSTICS, failure.code)) return 'UNKNOWN_FAILURE_CLASSIFICATION';
+    if (failure.diagnostic !== FAILURE_DIAGNOSTICS[failure.code]) return 'UNSAFE_FAILURE_DIAGNOSTIC';
+    if (!JSON.parse(this.projection).steps.some(step => step.id === failure.stepId)) return 'UNKNOWN_FAILED_STEP';
+    const { transitionKey, executionVersion } = this.claims[name];
+    this.report.settlements.push({ transitionKey, executionVersion, failure });
+    this.report.state = 'SETTLED';
+    return 'SETTLED_FAILED';
+  }
+
   apply(event) {
     switch (event.op) {
       case 'receive': return this.receive(event.frame);
       case 'dispatch': return this.dispatch(event.frame);
       case 'complete': return this.complete(event);
+      case 'change-result-grant':
+        this.grant.resultProfile = event.profile;
+        return 'HOST_RESULT_GRANT_CHANGED';
       case 'lose-response':
         if (this.report.state !== 'IN_FLIGHT') break;
         this.report.state = 'REMOTE_OUTCOME_UNKNOWN';

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Candidate portable failed transition result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["resultProfile", "outcome", "failure"],
+  "properties": {
+    "resultProfile": { "const": "tpf-polyglot-failed-result/1" },
+    "outcome": { "const": "FAILED" },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "stepId", "diagnostic"],
+      "properties": {
+        "code": { "type": "string" },
+        "stepId": { "type": "string", "minLength": 1 },
+        "diagnostic": { "type": "string" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "code": { "const": "TRANSIENT_EXHAUSTED" },
+            "diagnostic": { "const": "Local retry budget exhausted" }
+          }
+        },
+        {
+          "properties": {
+            "code": { "const": "BUSINESS_REJECTION" },
+            "diagnostic": { "const": "Business function rejected input" }
+          }
+        },
+        {
+          "properties": {
+            "code": { "const": "UNCLASSIFIED" },
+            "diagnostic": { "const": "Unclassified business function failure" }
+          }
+        }
+      ]
+    }
+  }
+}

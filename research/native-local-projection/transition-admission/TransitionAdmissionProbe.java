@@ -32,6 +32,11 @@ public final class TransitionAdmissionProbe {
     private static final String PROFILE = "tpf-polyglot-transition-admission/1";
     private static final String POLICY = "tpf-polyglot-unary-policy/1";
     private static final String ENCODING = "tpf-polyglot-research-json/1";
+    private static final String FAILED_RESULT_PROFILE = "tpf-polyglot-failed-result/1";
+    private static final Map<String, String> FAILURE_DIAGNOSTICS = Map.of(
+        "TRANSIENT_EXHAUSTED", "Local retry budget exhausted",
+        "BUSINESS_REJECTION", "Business function rejected input",
+        "UNCLASSIFIED", "Unclassified business function failure");
     private static final List<String> IDENTITY = List.of("pipelineId", "contractVersion", "releaseVersion");
     private static final List<String> ARTIFACT = List.of("artifactId", "artifactDigest");
     private static final List<String> ATTEMPT = List.of("executionId", "attempt", "executionVersion", "transitionKey");
@@ -48,6 +53,8 @@ public final class TransitionAdmissionProbe {
     private final ObjectNode grant;
     private final ObjectNode claims;
     private final JsonNode requests;
+    private final JsonNode workerFaults;
+    private final boolean observeResultDecoders;
     private final byte[] projection;
     private final Set<String> nonces = new HashSet<>();
     private final Map<String, JsonNode> replies = new HashMap<>();
@@ -62,6 +69,9 @@ public final class TransitionAdmissionProbe {
     private int aAttempts;
     private int bAttempts;
     private int cAttempts;
+    private int releasedResultReads;
+    private int portableFailureReads;
+    private String selectedResultProfile = "";
     private String state = "READY";
     private String current = "";
     private boolean disposition;
@@ -74,6 +84,8 @@ public final class TransitionAdmissionProbe {
         this.grant = overlay(corpus.path("grant"), testCase.path("grant"));
         this.claims = overlay(corpus.path("attempts"), testCase.path("claims"));
         this.requests = testCase.path("requests");
+        this.workerFaults = testCase.path("workerFaults");
+        this.observeResultDecoders = testCase.path("observeResultDecoders").asBoolean();
         String name = testCase.path("projection").asText("downstream-retry");
         if (!Set.of("downstream-retry", "changed-order").contains(name)) {
             throw new IllegalArgumentException("unknown projection fixture");
@@ -152,6 +164,15 @@ public final class TransitionAdmissionProbe {
             || !ENCODING.equals(text(grant, "payloadEncoding")) || !"ProbeValue".equals(text(grant, "payloadTypeId"))) {
             return "UNVERIFIED_POLICY_BINDING";
         }
+        if (grant.has("resultProfile")) {
+            JsonNode selected = grant.path("resultProfile");
+            if (!selected.isTextual()) {
+                return "MALFORMED_RESULT_PROFILE";
+            }
+            if (!FAILED_RESULT_PROFILE.equals(selected.textValue())) {
+                return "UNSUPPORTED_RESULT_PROFILE";
+            }
+        }
         String loadedDigest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(projection));
         return loadedDigest.equals(text(target, "artifactDigest")) ? "OK" : "ARTIFACT_DIGEST_MISMATCH";
     }
@@ -227,14 +248,18 @@ public final class TransitionAdmissionProbe {
         if (!value.isObject() || value.size() != 1 || !value.path("value").isInt() || value.path("value").intValue() != 3) {
             return "INVALID_PAYLOAD";
         }
-        int result = runFixture(value.path("value").intValue(), command);
-        if (claim.isPresent()) {
-            replies.put(name, completedResult(result));
+        String fault = claim.isPresent() ? text(workerFaults, name) : "";
+        if (!fault.isEmpty() && !FAILED_RESULT_PROFILE.equals(selectedResultProfile)) {
+            throw new IllegalArgumentException("modeled worker fault requires the selected failed result profile");
         }
-        return "COMPLETED";
+        ObjectNode result = runFixture(value.path("value").intValue(), command, fault);
+        if (claim.isPresent()) {
+            replies.put(name, result);
+        }
+        return text(result, "outcome");
     }
 
-    private int runFixture(int value, TransitionCommandEnvelope command) throws IOException {
+    private ObjectNode runFixture(int value, TransitionCommandEnvelope command, String fault) throws IOException {
         // Model the admitted worker's observations. The LOCAL binding exercises real calls and retry.
         contexts.addObject().put("executionId", command.executionId()).put("traceId", command.traceId());
         aAttempts++;
@@ -242,14 +267,35 @@ public final class TransitionAdmissionProbe {
         bAttempts++;
         bInputs.add(bInput);
         JsonNode admittedProjection = JSON.readTree(projection);
+        JsonNode step = admittedProjection.path("steps").path(1);
         if (!text(admittedProjection.path("policy"), "retryOwner").equals("LOCAL_SHELL")
-            || admittedProjection.path("steps").path(1).path("retryLimit").asInt() != 1) {
+            || step.path("retryLimit").asInt() != 1) {
             throw new IllegalArgumentException("worker fixture lacks its B retry policy");
+        }
+        if (fault.equals("BUSINESS_REJECTION")) {
+            return failedResult("BUSINESS_REJECTION", text(step, "id"));
+        }
+        if (fault.equals("HOST_THROW")) {
+            return failedResult("UNCLASSIFIED", text(step, "id"));
         }
         bAttempts++;
         bInputs.add(bInput);
+        if (fault.equals("TRANSIENT")) {
+            return failedResult("TRANSIENT_EXHAUSTED", text(step, "id"));
+        }
+        if (!fault.isEmpty()) {
+            throw new IllegalArgumentException("unknown modeled worker fault");
+        }
         cAttempts++;
-        return bInput * 2 - 3;
+        return completedResult(bInput * 2 - 3);
+    }
+
+    private ObjectNode failedResult(String code, String stepId) {
+        ObjectNode result = JSON.createObjectNode()
+            .put("resultProfile", selectedResultProfile).put("outcome", "FAILED");
+        result.putObject("failure").put("code", code).put("stepId", stepId)
+            .put("diagnostic", FAILURE_DIAGNOSTICS.get(code));
+        return result;
     }
 
     private static ObjectNode completedResult(int result) {
@@ -274,13 +320,14 @@ public final class TransitionAdmissionProbe {
         authorized = false;
         disposition = false;
         current = name;
+        selectedResultProfile = text(grant, "resultProfile");
         state = "IN_FLIGHT";
         coordinatorDeliveries++;
         String observed = receive(name, Optional.of(claims.path(name)));
-        return observed.equals("COMPLETED") ? "DISPATCHED" : observed;
+        return observed.equals("COMPLETED") || observed.equals("FAILED") ? "DISPATCHED" : observed;
     }
 
-    private String complete(JsonNode event) {
+    private String complete(JsonNode event) throws IOException {
         String name = text(event, "frame");
         if (!name.equals(current) || !replies.containsKey(name)) {
             return "STALE_COMPLETION";
@@ -294,6 +341,17 @@ public final class TransitionAdmissionProbe {
         JsonNode response = event.has("response") ? event.path("response") : replies.get(name);
         if (!response.isObject()) {
             return "INVALID_WORKER_RESULT";
+        }
+        if (response.has("resultProfile")) {
+            if (!FAILED_RESULT_PROFILE.equals(selectedResultProfile)
+                || !response.path("resultProfile").isTextual()
+                || !selectedResultProfile.equals(text(response, "resultProfile"))) {
+                return "RESULT_PROFILE_MISMATCH";
+            }
+            return completeFailure(name, response);
+        }
+        if (text(response, "outcome").equals("FAILED") && FAILED_RESULT_PROFILE.equals(selectedResultProfile)) {
+            return "RESULT_PROFILE_MISMATCH";
         }
         if (!text(response, "outcome").equals("COMPLETED")) {
             return "UNSUPPORTED_WORKER_OUTCOME";
@@ -309,6 +367,7 @@ public final class TransitionAdmissionProbe {
         if (!ENCODING.equals(text(output, "payloadEncoding")) || !"ProbeValue".equals(text(output, "payloadTypeId"))) {
             return "UNSUPPORTED_RESULT_ENCODING";
         }
+        releasedResultReads++;
         JsonNode value;
         try {
             var result = JSON.treeToValue(response, TransitionWireResult.class);
@@ -324,6 +383,36 @@ public final class TransitionAdmissionProbe {
             .put("executionVersion", pin.path("executionVersion").asInt()).put("value", value.path("value").asInt());
         state = "SETTLED";
         return "SETTLED";
+    }
+
+    private String completeFailure(String name, JsonNode response) throws IOException {
+        portableFailureReads++;
+        JsonNode failure = response.path("failure");
+        if (response.size() != 3 || !text(response, "outcome").equals("FAILED")
+            || !failure.isObject() || failure.size() != 3
+            || !List.of("code", "stepId", "diagnostic").stream().allMatch(key ->
+                failure.path(key).isTextual() && !text(failure, key).isEmpty())) {
+            return "INVALID_PORTABLE_FAILURE";
+        }
+        String code = text(failure, "code");
+        if (!FAILURE_DIAGNOSTICS.containsKey(code)) {
+            return "UNKNOWN_FAILURE_CLASSIFICATION";
+        }
+        if (!FAILURE_DIAGNOSTICS.get(code).equals(text(failure, "diagnostic"))) {
+            return "UNSAFE_FAILURE_DIAGNOSTIC";
+        }
+        boolean knownStep = false;
+        for (JsonNode step : JSON.readTree(projection).path("steps")) {
+            knownStep |= text(step, "id").equals(text(failure, "stepId"));
+        }
+        if (!knownStep) {
+            return "UNKNOWN_FAILED_STEP";
+        }
+        JsonNode pin = claims.path(name);
+        settlements.addObject().put("transitionKey", text(pin, "transitionKey"))
+            .put("executionVersion", pin.path("executionVersion").asInt()).set("failure", failure);
+        state = "SETTLED";
+        return "SETTLED_FAILED";
     }
 
     private String loseResponse() {
@@ -380,6 +469,10 @@ public final class TransitionAdmissionProbe {
             case "receive" -> receive(text(event, "frame"), Optional.empty());
             case "dispatch" -> dispatch(text(event, "frame"));
             case "complete" -> complete(event);
+            case "change-result-grant" -> {
+                grant.set("resultProfile", event.path("profile"));
+                yield "HOST_RESULT_GRANT_CHANGED";
+            }
             case "lose-response" -> loseResponse();
             case "confirm-disposition" -> confirmDisposition(event);
             case "authorize-redrive" -> authorizeRedrive(event);
@@ -399,6 +492,10 @@ public final class TransitionAdmissionProbe {
         result.set("bInputs", bInputs);
         result.set("contexts", contexts);
         result.set("settlements", settlements);
+        if (observeResultDecoders) {
+            result.putObject("resultDecoders").put("released", releasedResultReads)
+                .put("portableFailed", portableFailureReads);
+        }
         return result;
     }
 

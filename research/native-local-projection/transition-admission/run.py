@@ -28,6 +28,9 @@ unverified-protocol bare-json-outer outer-inner-encoding substituted-projection 
 nonce-consumed-before-envelope-parse unknown-outcome-and-authorized-redrive normal-settlement
 incompatible-worker-result blank-execution blank-trace non-ascii-context targeted-replay
 wrong-claimed-execution one-redrive-only stale-redrive-claim
+portable-transient-exhaustion portable-business-rejection portable-unclassified-pinned-grant
+released-success-with-portable-grant unknown-result-profile-before-dispatch malformed-result-profile-before-dispatch
+portable-result-without-opt-in incompatible-portable-result invalid-portable-failure stale-portable-failure
 """.split())
 
 
@@ -70,6 +73,16 @@ def corruptions(document):
     stale = next(event for event in case['events'] if event['op'] == 'complete')
     stale['frame'] = 'redrive'
     yield 'settle-current-instead-of-stale', case['id'], changed
+
+    changed = deepcopy(document)
+    case = cases_by_id(changed)['portable-result-without-opt-in']
+    case['grant'] = {'resultProfile': 'tpf-polyglot-failed-result/1'}
+    yield 'authorize-portable-result-at-dispatch', case['id'], changed
+
+    changed = deepcopy(document)
+    case = cases_by_id(changed)['portable-transient-exhaustion']
+    case['expected']['resultDecoders']['released'] = 1
+    yield 'route-portable-result-through-released-decoder', case['id'], changed
 
 
 def expect_pass(command, language):

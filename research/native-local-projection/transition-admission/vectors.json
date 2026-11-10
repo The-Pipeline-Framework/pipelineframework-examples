@@ -1518,6 +1518,712 @@
         "settlements": [],
         "state": "REMOTE_OUTCOME_UNKNOWN"
       }
+    },
+    {
+      "id": "portable-transient-exhaustion",
+      "observeResultDecoders": true,
+      "grant": {
+        "resultProfile": "tpf-polyglot-failed-result/1"
+      },
+      "workerFaults": {
+        "original": "TRANSIENT"
+      },
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "complete",
+          "frame": "original"
+        },
+        {
+          "op": "complete",
+          "frame": "original"
+        },
+        {
+          "op": "dispatch",
+          "frame": "redrive"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "SETTLED_FAILED",
+          "ALREADY_SETTLED",
+          "REDRIVE_NOT_AUTHORIZED"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 1,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 2,
+          "C": 0
+        },
+        "bInputs": [
+          4,
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          }
+        ],
+        "settlements": [
+          {
+            "transitionKey": "execution-proof:0:1",
+            "executionVersion": 7,
+            "failure": {
+              "code": "TRANSIENT_EXHAUSTED",
+              "stepId": "B",
+              "diagnostic": "Local retry budget exhausted"
+            }
+          }
+        ],
+        "state": "SETTLED",
+        "resultDecoders": {
+          "released": 0,
+          "portableFailed": 1
+        }
+      }
+    },
+    {
+      "id": "portable-business-rejection",
+      "observeResultDecoders": true,
+      "grant": {
+        "resultProfile": "tpf-polyglot-failed-result/1"
+      },
+      "workerFaults": {
+        "original": "BUSINESS_REJECTION"
+      },
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "complete",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "SETTLED_FAILED"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 1,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 1,
+          "C": 0
+        },
+        "bInputs": [
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          }
+        ],
+        "settlements": [
+          {
+            "transitionKey": "execution-proof:0:1",
+            "executionVersion": 7,
+            "failure": {
+              "code": "BUSINESS_REJECTION",
+              "stepId": "B",
+              "diagnostic": "Business function rejected input"
+            }
+          }
+        ],
+        "state": "SETTLED",
+        "resultDecoders": {
+          "released": 0,
+          "portableFailed": 1
+        }
+      }
+    },
+    {
+      "id": "portable-unclassified-pinned-grant",
+      "observeResultDecoders": true,
+      "grant": {
+        "resultProfile": "tpf-polyglot-failed-result/1"
+      },
+      "workerFaults": {
+        "original": "HOST_THROW"
+      },
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "change-result-grant",
+          "profile": "future/99"
+        },
+        {
+          "op": "complete",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "HOST_RESULT_GRANT_CHANGED",
+          "SETTLED_FAILED"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 1,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 1,
+          "C": 0
+        },
+        "bInputs": [
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          }
+        ],
+        "settlements": [
+          {
+            "transitionKey": "execution-proof:0:1",
+            "executionVersion": 7,
+            "failure": {
+              "code": "UNCLASSIFIED",
+              "stepId": "B",
+              "diagnostic": "Unclassified business function failure"
+            }
+          }
+        ],
+        "state": "SETTLED",
+        "resultDecoders": {
+          "released": 0,
+          "portableFailed": 1
+        }
+      }
+    },
+    {
+      "id": "released-success-with-portable-grant",
+      "observeResultDecoders": true,
+      "grant": {
+        "resultProfile": "tpf-polyglot-failed-result/1"
+      },
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "complete",
+          "frame": "original",
+          "response": {
+            "resultProfile": "tpf-polyglot-failed-result/1",
+            "outcome": "COMPLETED",
+            "failure": {
+              "code": "BUSINESS_REJECTION",
+              "stepId": "B",
+              "diagnostic": "Business function rejected input"
+            },
+            "outputPayloads": [
+              {
+                "payloadTypeId": "ProbeValue",
+                "payloadEncoding": "tpf-polyglot-research-json/1",
+                "payload": "{\"value\":5}"
+              }
+            ]
+          },
+          "candidateSchemaValid": false
+        },
+        {
+          "op": "complete",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "INVALID_PORTABLE_FAILURE",
+          "SETTLED"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 1,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 2,
+          "C": 1
+        },
+        "bInputs": [
+          4,
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          }
+        ],
+        "settlements": [
+          {
+            "transitionKey": "execution-proof:0:1",
+            "executionVersion": 7,
+            "value": 5
+          }
+        ],
+        "state": "SETTLED",
+        "resultDecoders": {
+          "released": 1,
+          "portableFailed": 1
+        }
+      }
+    },
+    {
+      "id": "unknown-result-profile-before-dispatch",
+      "observeResultDecoders": true,
+      "grant": {
+        "resultProfile": "future/99"
+      },
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "UNSUPPORTED_RESULT_PROFILE"
+        ],
+        "physicalRequests": 0,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 0,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY",
+        "resultDecoders": {
+          "released": 0,
+          "portableFailed": 0
+        }
+      }
+    },
+    {
+      "id": "malformed-result-profile-before-dispatch",
+      "observeResultDecoders": true,
+      "grant": {
+        "resultProfile": {
+          "profile": "tpf-polyglot-failed-result/1"
+        }
+      },
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "MALFORMED_RESULT_PROFILE"
+        ],
+        "physicalRequests": 0,
+        "coordinatorDeliveries": 0,
+        "envelopeReads": 0,
+        "payloadReads": 0,
+        "attempts": {
+          "A": 0,
+          "B": 0,
+          "C": 0
+        },
+        "bInputs": [],
+        "contexts": [],
+        "settlements": [],
+        "state": "READY",
+        "resultDecoders": {
+          "released": 0,
+          "portableFailed": 0
+        }
+      }
+    },
+    {
+      "id": "portable-result-without-opt-in",
+      "observeResultDecoders": true,
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "change-result-grant",
+          "profile": "tpf-polyglot-failed-result/1"
+        },
+        {
+          "op": "complete",
+          "frame": "original",
+          "response": {
+            "resultProfile": "tpf-polyglot-failed-result/1",
+            "outcome": "FAILED",
+            "failure": {
+              "code": "BUSINESS_REJECTION",
+              "stepId": "B",
+              "diagnostic": "Business function rejected input"
+            }
+          },
+          "candidateSchemaValid": true
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "HOST_RESULT_GRANT_CHANGED",
+          "RESULT_PROFILE_MISMATCH"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 1,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 2,
+          "C": 1
+        },
+        "bInputs": [
+          4,
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          }
+        ],
+        "settlements": [],
+        "state": "IN_FLIGHT",
+        "resultDecoders": {
+          "released": 0,
+          "portableFailed": 0
+        }
+      }
+    },
+    {
+      "id": "incompatible-portable-result",
+      "observeResultDecoders": true,
+      "grant": {
+        "resultProfile": "tpf-polyglot-failed-result/1"
+      },
+      "workerFaults": {
+        "original": "BUSINESS_REJECTION"
+      },
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "complete",
+          "frame": "original",
+          "response": {
+            "outcome": "FAILED",
+            "outputPayloads": [],
+            "failure": {
+              "failureClass": "java.lang.IllegalStateException",
+              "message": "legacy runtime failure"
+            },
+            "terminalOutputPublished": false,
+            "terminalInputPassthrough": false
+          }
+        },
+        {
+          "op": "complete",
+          "frame": "original",
+          "response": {
+            "resultProfile": "tpf-polyglot-failed-result/99",
+            "outcome": "FAILED",
+            "failure": {
+              "code": "BUSINESS_REJECTION",
+              "stepId": "B",
+              "diagnostic": "Business function rejected input"
+            }
+          },
+          "candidateSchemaValid": false
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "RESULT_PROFILE_MISMATCH",
+          "RESULT_PROFILE_MISMATCH"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 1,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 1,
+          "C": 0
+        },
+        "bInputs": [
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          }
+        ],
+        "settlements": [],
+        "state": "IN_FLIGHT",
+        "resultDecoders": {
+          "released": 0,
+          "portableFailed": 0
+        }
+      }
+    },
+    {
+      "id": "invalid-portable-failure",
+      "observeResultDecoders": true,
+      "grant": {
+        "resultProfile": "tpf-polyglot-failed-result/1"
+      },
+      "workerFaults": {
+        "original": "BUSINESS_REJECTION"
+      },
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "complete",
+          "frame": "original",
+          "response": {
+            "resultProfile": "tpf-polyglot-failed-result/1",
+            "outcome": "FAILED",
+            "failure": {
+              "code": "UNRECOGNIZED",
+              "stepId": "B",
+              "diagnostic": "Business function rejected input"
+            }
+          },
+          "candidateSchemaValid": false
+        },
+        {
+          "op": "complete",
+          "frame": "original",
+          "response": {
+            "resultProfile": "tpf-polyglot-failed-result/1",
+            "outcome": "FAILED",
+            "failure": {
+              "code": "BUSINESS_REJECTION",
+              "stepId": "B",
+              "diagnostic": "raw host exception detail"
+            }
+          },
+          "candidateSchemaValid": false
+        },
+        {
+          "op": "complete",
+          "frame": "original",
+          "response": {
+            "resultProfile": "tpf-polyglot-failed-result/1",
+            "outcome": "FAILED",
+            "failure": {
+              "code": "BUSINESS_REJECTION",
+              "stepId": "B",
+              "diagnostic": "Business function rejected input",
+              "retryable": true
+            }
+          },
+          "candidateSchemaValid": false
+        },
+        {
+          "op": "complete",
+          "frame": "original",
+          "response": {
+            "resultProfile": "tpf-polyglot-failed-result/1",
+            "outcome": "FAILED",
+            "failure": {
+              "code": "BUSINESS_REJECTION",
+              "stepId": "not-projected",
+              "diagnostic": "Business function rejected input"
+            }
+          },
+          "candidateSchemaValid": true
+        },
+        {
+          "op": "complete",
+          "frame": "original",
+          "response": {
+            "resultProfile": "tpf-polyglot-failed-result/1",
+            "outcome": "FAILED",
+            "failure": {
+              "code": [
+                "BUSINESS_REJECTION"
+              ],
+              "stepId": "B",
+              "diagnostic": "Business function rejected input"
+            }
+          },
+          "candidateSchemaValid": false
+        },
+        {
+          "op": "lose-response"
+        },
+        {
+          "op": "dispatch",
+          "frame": "redrive"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "UNKNOWN_FAILURE_CLASSIFICATION",
+          "UNSAFE_FAILURE_DIAGNOSTIC",
+          "INVALID_PORTABLE_FAILURE",
+          "UNKNOWN_FAILED_STEP",
+          "INVALID_PORTABLE_FAILURE",
+          "REMOTE_OUTCOME_UNKNOWN",
+          "REDRIVE_NOT_AUTHORIZED"
+        ],
+        "physicalRequests": 1,
+        "coordinatorDeliveries": 1,
+        "envelopeReads": 1,
+        "payloadReads": 1,
+        "attempts": {
+          "A": 1,
+          "B": 1,
+          "C": 0
+        },
+        "bInputs": [
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          }
+        ],
+        "settlements": [],
+        "state": "REMOTE_OUTCOME_UNKNOWN",
+        "resultDecoders": {
+          "released": 0,
+          "portableFailed": 5
+        }
+      }
+    },
+    {
+      "id": "stale-portable-failure",
+      "observeResultDecoders": true,
+      "grant": {
+        "resultProfile": "tpf-polyglot-failed-result/1"
+      },
+      "workerFaults": {
+        "original": "BUSINESS_REJECTION"
+      },
+      "events": [
+        {
+          "op": "dispatch",
+          "frame": "original"
+        },
+        {
+          "op": "lose-response"
+        },
+        {
+          "op": "confirm-disposition",
+          "authority": "independent-observer",
+          "frame": "original",
+          "disposition": "ORIGINAL_ATTEMPT_INACTIVE"
+        },
+        {
+          "op": "authorize-redrive",
+          "authority": "operator",
+          "prior": "original",
+          "next": "redrive"
+        },
+        {
+          "op": "dispatch",
+          "frame": "redrive"
+        },
+        {
+          "op": "complete",
+          "frame": "original"
+        },
+        {
+          "op": "complete",
+          "frame": "redrive"
+        },
+        {
+          "op": "complete",
+          "frame": "original"
+        }
+      ],
+      "expected": {
+        "diagnostics": [
+          "DISPATCHED",
+          "REMOTE_OUTCOME_UNKNOWN",
+          "DISPOSITION_CONFIRMED",
+          "REDRIVE_AUTHORIZED",
+          "DISPATCHED",
+          "STALE_COMPLETION",
+          "SETTLED",
+          "STALE_COMPLETION"
+        ],
+        "physicalRequests": 2,
+        "coordinatorDeliveries": 2,
+        "envelopeReads": 2,
+        "payloadReads": 2,
+        "attempts": {
+          "A": 2,
+          "B": 3,
+          "C": 1
+        },
+        "bInputs": [
+          4,
+          4,
+          4
+        ],
+        "contexts": [
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:1"
+          },
+          {
+            "executionId": "execution-proof",
+            "traceId": "execution-proof:0:2"
+          }
+        ],
+        "settlements": [
+          {
+            "transitionKey": "execution-proof:0:2",
+            "executionVersion": 11,
+            "value": 5
+          }
+        ],
+        "state": "SETTLED",
+        "resultDecoders": {
+          "released": 1,
+          "portableFailed": 0
+        }
+      }
     }
   ]
 }
