@@ -37,6 +37,7 @@ public final class ProofActionGatewayHandler implements RequestHandler<AwsDurabl
                 READ_EXECUTION_AWAITS, READ_AWAIT_COMPLETION, QUERY_AWAIT_COMPLETIONS, RECORD_AWAIT_RESUMED ->
                 controlPlaneActions.handle(request);
             case REGISTER_CALLBACK, BIND_CALLBACK -> durableHostActions.handle(request);
+            default -> throw new IllegalArgumentException("Unsupported AWS Durable proof operation: " + request.operation());
         };
     }
 }

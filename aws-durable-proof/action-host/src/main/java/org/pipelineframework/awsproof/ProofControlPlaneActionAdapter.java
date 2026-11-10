@@ -61,6 +61,7 @@ final class ProofControlPlaneActionAdapter {
                 READ_EXECUTION_AWAITS, READ_AWAIT_COMPLETION, QUERY_AWAIT_COMPLETIONS, RECORD_AWAIT_RESUMED -> actions.invoke(request);
             case REGISTER_CALLBACK, BIND_CALLBACK -> throw new IllegalArgumentException(
                 request.operation() + " is an AWS Durable host operation");
+            default -> throw new IllegalArgumentException("Unsupported AWS Durable proof operation: " + request.operation());
         };
     }
 
