@@ -35,6 +35,7 @@ final class ProofDurableHostActionAdapter {
             case SUBMIT, STATUS, RESULT, REDRIVE, SWEEP, REGISTER_EXECUTION, QUERY_PENDING_AWAIT, READ_AWAIT_CHECKPOINT,
                 READ_EXECUTION_AWAITS, READ_AWAIT_COMPLETION, QUERY_AWAIT_COMPLETIONS, RECORD_AWAIT_RESUMED ->
                 throw new IllegalArgumentException(request.operation() + " is a TPF control-plane operation");
+            default -> throw new IllegalArgumentException("Unsupported AWS Durable proof operation: " + request.operation());
         };
     }
 
