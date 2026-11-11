@@ -104,3 +104,6 @@ jobs:
       - name: Check admission and settlement transcripts
         working-directory: research/native-local-projection
         run: python3 -B transition-admission/run.py
+      - name: Check native worker payload and release binding intake
+        working-directory: research/native-local-projection
+        run: python3 -B worker-binding-intake/run.py
