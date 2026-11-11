@@ -57,7 +57,7 @@ does not enable the GitHub Actions dispatch endpoint.
    the revision to the repository and branch you intend to submit. The compiler consumes
    the committed YAML and bindings. Node consumes the TypeScript function locally.
 3. Get the Node generation client at the
-   [pinned client revision](https://github.com/The-Pipeline-Framework/pipelineframework-compiler/tree/7101d84d52b7b1958ddf83fc11b7faaf28b12576).
+   [pinned client revision](https://github.com/The-Pipeline-Framework/pipelineframework-compiler/tree/68b976485c816733d67a3008c6ea7578bf5838eb).
    Keep the client and its adjacent scripts together. The reusable compiler workflow stays
    pinned to `9b9172c8b4fd98b664bd14eb9b22f72dddb2b92f`. From the example repository
    root, use a new output directory for this request.
@@ -100,7 +100,10 @@ An IDE can attach to `node --inspect-brk run.mjs 3` and set the same TypeScript 
 `npm run test:conformance` reads the
 [shared fixed cases](../../research/native-local-projection/runtime-policy/v1/scenarios.json)
 used by the Java, Node and Python research probes. It exercises the installed package and
-three genuine compiler generations.
+three genuine compiler generations. These fixed cases expect the original example
+functions in `src/business.ts`. Run them in an unchanged checkout; after editing business
+logic, adapt the application tests to your expected results rather than changing the
+shared conformance expectations.
 
 | Fixture | Order and policy | Verified generation |
 | --- | --- | --- |
