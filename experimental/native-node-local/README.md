@@ -44,7 +44,10 @@ The application inputs are [pipeline.yaml](pipeline.yaml) and
 repository with the pinned
 [caller workflow](https://github.com/The-Pipeline-Framework/pipelineframework-compiler/blob/f5c408de97831f4d4a4e6c49bc987ceb418dcd09/.github/workflows/tpf-node-generation.yml)
 registered on its default branch as `.github/workflows/tpf-node-generation.yml`. The
-reusable workflow runs Java on the build host.
+reusable workflow runs Java on the build host. This examples repository does not register
+that caller: installation from the fixtures works here, but regeneration first requires
+the caller to be installed in your own repository. Copying the application files alone
+does not enable the GitHub Actions dispatch endpoint.
 
 1. Switch the first two steps in the YAML to B, then A. Keep the type chain
    `InputValue → FirstValue → SecondValue → OutputValue` by assigning B the
@@ -54,12 +57,13 @@ reusable workflow runs Java on the build host.
    the revision to the repository and branch you intend to submit. The compiler consumes
    the committed YAML and bindings. Node consumes the TypeScript function locally.
 3. Get the Node generation client at the
-   [pinned client revision](https://github.com/The-Pipeline-Framework/pipelineframework-compiler/tree/bef9a0a655d7c083e8e2d6cf94077a647b299186).
+   [pinned client revision](https://github.com/The-Pipeline-Framework/pipelineframework-compiler/tree/7101d84d52b7b1958ddf83fc11b7faaf28b12576).
    Keep the client and its adjacent scripts together. The reusable compiler workflow stays
    pinned to `9b9172c8b4fd98b664bd14eb9b22f72dddb2b92f`. From the example repository
    root, use a new output directory for this request.
 
 ```sh
+mkdir -p experimental/native-node-local/generated
 node /path/to/pinned/compiler/scripts/remote-node-generation.mjs \
   YOUR-OWNER/YOUR-REPOSITORY YOUR-BRANCH "$(git rev-parse HEAD)" \
   9b9172c8b4fd98b664bd14eb9b22f72dddb2b92f \
