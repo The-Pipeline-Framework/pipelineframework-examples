@@ -1,0 +1,37 @@
+name: Experimental Python intake
+
+on:
+  pull_request:
+    paths:
+      - "research/python-local-intake/**"
+      - ".github/workflows/experimental-python-intake.yml"
+  push:
+    branches: [main]
+    paths:
+      - "research/python-local-intake/**"
+      - ".github/workflows/experimental-python-intake.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  python-intake:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Probe CPython without Java, Node or network
+        run: |
+          docker run --rm --network none -v "$PWD:/work:ro" -w /work \
+            python@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 \
+            python -W error -m unittest discover -s research/python-local-intake -p 'test_*.py' -v
+      - name: Check candidate nominal type shapes
+        run: |
+          docker run --rm -v "$PWD:/work:ro" -w /work \
+            python@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 \
+            sh -eu -c '
+              python -m pip install --disable-pip-version-check --no-cache-dir -r research/python-local-intake/requirements-test.txt
+              python research/python-local-intake/check_types.py
+            '
