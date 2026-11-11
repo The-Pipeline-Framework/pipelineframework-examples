@@ -1,14 +1,16 @@
 """Test-only candidate type shapes; future bindings are emitted by the Java compiler."""
-from collections.abc import Coroutine, Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any, Generic, TypeAlias, TypeVar
+from typing import Any, Generic, TypeAlias, TypeVar, final
 
 
+@final
 @dataclass(frozen=True, slots=True)
 class InputValue:
     value: int
 
 
+@final
 @dataclass(frozen=True, slots=True)
 class OutputValue:
     value: int
