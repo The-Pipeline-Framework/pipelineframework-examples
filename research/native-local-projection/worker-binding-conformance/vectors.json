@@ -1,0 +1,75 @@
+{
+  "encoding": "tpf-polyglot-int32-json/1",
+  "legacyEncoding": "application/tpf-transition+json",
+  "researchEncoding": "tpf-polyglot-research-json/1",
+  "outerEncoding": "application/tpf-transition-envelope+json",
+  "boundaryTypeIds": ["InputValue", "FirstValue", "SecondValue", "OutputValue"],
+  "unknownTypeIds": ["ProbeValue", "org.example.InputValue", "inputValue"],
+  "invalidCatalogs": [
+    {"id": "empty", "typeIds": []},
+    {"id": "too-few", "typeIds": ["InputValue", "FirstValue", "SecondValue"]},
+    {"id": "too-many", "typeIds": ["InputValue", "FirstValue", "SecondValue", "OutputValue", "ExtraValue"]},
+    {"id": "duplicate", "typeIds": ["InputValue", "FirstValue", "FirstValue", "OutputValue"]},
+    {"id": "blank", "typeIds": ["InputValue", "FirstValue", "SecondValue", " "]}
+  ],
+  "values": [
+    {"id": "minimum", "value": -2147483648, "canonical": "{\"value\":-2147483648}"},
+    {"id": "maximum", "value": 2147483647, "canonical": "{\"value\":2147483647}"},
+    {"id": "negative", "value": -17, "canonical": "{\"value\":-17}"},
+    {"id": "zero", "value": 0, "canonical": "{\"value\":0}"},
+    {"id": "positive", "value": 13, "canonical": "{\"value\":13}"}
+  ],
+  "decodes": [
+    {"id": "negative-zero", "payload": "{\"value\":-0}", "value": 0, "canonical": "{\"value\":0}"},
+    {"id": "json-whitespace", "payload": " \t{\n \"value\" \r: \t-17\n }\r\n", "value": -17, "canonical": "{\"value\":-17}"},
+    {"id": "escaped-member", "payload": "{\"v\\u0061lue\":13}", "value": 13, "canonical": "{\"value\":13}"}
+  ],
+  "invalidDecodes": [
+    {"id": "below-minimum", "payload": "{\"value\":-2147483649}"},
+    {"id": "above-maximum", "payload": "{\"value\":2147483648}"},
+    {"id": "beyond-safe-number", "payload": "{\"value\":9007199254740993}"},
+    {"id": "empty", "payload": ""},
+    {"id": "missing-member", "payload": "{}"},
+    {"id": "null", "payload": "{\"value\":null}"},
+    {"id": "boolean", "payload": "{\"value\":true}"},
+    {"id": "numeric-string", "payload": "{\"value\":\"13\"}"},
+    {"id": "fraction", "payload": "{\"value\":1.25}"},
+    {"id": "whole-decimal", "payload": "{\"value\":1.0}"},
+    {"id": "whole-exponent", "payload": "{\"value\":1e0}"},
+    {"id": "overflow-exponent", "payload": "{\"value\":1e309}"},
+    {"id": "leading-zero", "payload": "{\"value\":01}"},
+    {"id": "plus-sign", "payload": "{\"value\":+1}"},
+    {"id": "nan", "payload": "{\"value\":NaN}"},
+    {"id": "unknown-member", "payload": "{\"value\":1,\"extra\":0}"},
+    {"id": "unknown-instead-of-value", "payload": "{\"Value\":1}"},
+    {"id": "duplicate-member", "payload": "{\"value\":1,\"value\":1}"},
+    {"id": "duplicate-escaped-member", "payload": "{\"value\":1,\"v\\u0061lue\":2}"},
+    {"id": "duplicate-first-escaped-member", "payload": "{\"\\u0076alue\":1,\"value\":2}"},
+    {"id": "nested-object", "payload": "{\"value\":{\"value\":13}}"},
+    {"id": "array-member", "payload": "{\"value\":[13]}"},
+    {"id": "array-root", "payload": "[{\"value\":13}]"},
+    {"id": "scalar-root", "payload": "13"},
+    {"id": "null-root", "payload": "null"},
+    {"id": "trailing-object", "payload": "{\"value\":1} {}"},
+    {"id": "trailing-null", "payload": "{\"value\":1} null"},
+    {"id": "trailing-comment", "payload": "{\"value\":1} /* comment */"},
+    {"id": "trailing-comma", "payload": "{\"value\":1,}"},
+    {"id": "non-json-whitespace", "payload": "\u00a0{\"value\":1}"},
+    {"id": "trailing-unicode-separator", "payload": "{\"value\":1}\u2028"}
+  ],
+  "invalidNativeEncodes": [
+    {"id": "below-minimum", "value": -2147483649},
+    {"id": "above-maximum", "value": 2147483648},
+    {"id": "fraction", "value": 1.25},
+    {"id": "numeric-string", "value": "13"},
+    {"id": "boolean", "value": true},
+    {"id": "null", "value": null},
+    {"id": "record", "value": {"value": 13}}
+  ],
+  "invalidNativeEnvelopes": [
+    {"id": "null-envelope", "envelope": null},
+    {"id": "missing-payload", "envelope": {"payloadTypeId": "InputValue", "payloadEncoding": "tpf-polyglot-int32-json/1"}},
+    {"id": "numeric-payload", "envelope": {"payloadTypeId": "InputValue", "payloadEncoding": "tpf-polyglot-int32-json/1", "payload": 0}},
+    {"id": "extra-member", "envelope": {"payloadTypeId": "InputValue", "payloadEncoding": "tpf-polyglot-int32-json/1", "payload": "{\"value\":0}", "expectedTypeId": "InputValue"}}
+  ]
+}
