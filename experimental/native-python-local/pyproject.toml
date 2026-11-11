@@ -1,0 +1,5 @@
+[tool.mypy]
+python_version = "3.14"
+strict = true
+explicit_package_bases = true
+files = ["business.py", "run.py", "verify_project.py", "fetch_runtime.py"]
