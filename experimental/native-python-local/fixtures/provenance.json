@@ -2,9 +2,9 @@
   "origin": "local-compiler",
   "compiler": {
     "repository": "The-Pipeline-Framework/pipelineframework-compiler",
-    "sha": "6c8f905f55ace22fad1bc5ccdb61fc17a27728e3",
+    "sha": "e3b09209c53fe28c9d79045fe3665180a3709d98",
     "artifact": "pipelineframework-compiler-26.11.2-SNAPSHOT.jar",
-    "sha256": "6177a2e4ac819a78371d6fb8d42f6a29ca2557ff3b6041afab522b0560c1ff5c",
+    "sha256": "0278c76821f4f9bb71cc2b8e84a3fc3d9af4956c65352c5a867e47863f905c76",
     "contractsVersion": "26.11.1",
     "dependencies": {
       "org/pipelineframework/pipelineframework-api/26.11.1/pipelineframework-api-26.11.1.jar": "dc2e7f0ebe851d0093dc0af3f447660b16f76d103f9480fd0e47b724703dee84",
@@ -32,7 +32,7 @@
         "native-bindings.json": "1e628057f018e0522e7968e8858364d3c60f52e998057d7ee1866968cc134a64"
       },
       "files": {
-        "application.py": "2b3334b24d96aece7783989960d59e5ef2af3dcb8512573093109f4251e0339b",
+        "application.py": "700dd3598b5389ae692006e102809f7be9b3395edb361a4d99827b10abd2b140",
         "models.py": "9e4fdc3cdad62f4e61c0b829efda5a73d5070f544dcd3170a7a53b4257fc1733",
         "projection.json": "dac12f92b2449e85e0b962052a397862a7583ca6e6b194de8f1fbad5ab3b6d45"
       }
@@ -43,7 +43,7 @@
         "native-bindings.json": "e8d4f3e157e51e30c70bca05b998406f675099312a26563e71f9667c5fb7bf3d"
       },
       "files": {
-        "application.py": "8bf832adac8f91316961a3ecd42a22757b8637cf8f329f405a298c5882a585e7",
+        "application.py": "c5fd837869b31ceef6beac784b2de58450645d988a3c728f1b7f2eeabbd3f134",
         "models.py": "9e4fdc3cdad62f4e61c0b829efda5a73d5070f544dcd3170a7a53b4257fc1733",
         "projection.json": "bb9babccae6b29c1fcf085582b5524e9e7a483eabddbe991773ee0cd2f3eb1c1"
       }
@@ -54,7 +54,7 @@
         "native-bindings.json": "f35dfff8c3370536f4c740a35b6dfb2ba2dd9df1d816f8823ea9479c2c68370f"
       },
       "files": {
-        "application.py": "82020843d3c8c770b9fb82d9831fa4c7a3f64c098a5712ff07733703a7d7ce34",
+        "application.py": "718051cb2e476b011dc78fe15904c16dcb8ca2a6db6b6e2dcaf4ab298d00902d",
         "models.py": "9e4fdc3cdad62f4e61c0b829efda5a73d5070f544dcd3170a7a53b4257fc1733",
         "projection.json": "0348f2f8d3d522d038ad2b8842597e88fa186fef7c44450505658f102fe3dd09"
       }

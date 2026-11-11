@@ -19,7 +19,7 @@ CLI 2.100 or newer to retrieve the runtime wheel. From this directory:
 python -m venv .venv
 . .venv/bin/activate
 python -m fetch_runtime
-python -m pip install --no-index --no-deps generated/runtime/*.whl
+python -m pip install --no-index --no-deps --force-reinstall generated/runtime/*.whl
 python -m pip install -r requirements-test.txt
 cp -R fixtures/project/generated generated/project
 python -m verify_project
@@ -45,10 +45,10 @@ carry no signed Release identity.
 ## Edit and regenerate
 
 1. Copy the example to your own Actions-enabled repository. Register the
-   [compiler's caller recipe](https://github.com/The-Pipeline-Framework/pipelineframework-compiler/blob/6c8f905f55ace22fad1bc5ccdb61fc17a27728e3/README.md#set-up-the-generation-workflow)
+   [compiler's caller recipe](https://github.com/The-Pipeline-Framework/pipelineframework-compiler/blob/e3b09209c53fe28c9d79045fe3665180a3709d98/README.md#set-up-the-generation-workflow)
    as `.github/workflows/tpf-node-generation.yml` on the default branch and on the
    branch you submit. Pin the reusable workflow to
-   `6c8f905f55ace22fad1bc5ccdb61fc17a27728e3` and forward its `target` input.
+   `e3b09209c53fe28c9d79045fe3665180a3709d98` and forward its `target` input.
 2. In [pipeline.yaml](pipeline.yaml), switch the first two steps to B, then A. Assign B
    `InputValue → FirstValue` and A `FirstValue → SecondValue`. Make the same type
    changes in [native-bindings.json](native-bindings.json) and the handler signatures
@@ -64,7 +64,7 @@ project=experimental/native-python-local
 mkdir -p "$project/generated"
 python /path/to/pinned/compiler/scripts/remote_node_generation.py \
   OWNER/REPOSITORY BRANCH "$(git rev-parse HEAD)" \
-  6c8f905f55ace22fad1bc5ccdb61fc17a27728e3 "$project/generated/reordered" "$project" --target python
+  e3b09209c53fe28c9d79045fe3665180a3709d98 "$project/generated/reordered" "$project" --target python
 ```
 
 The client submits the committed YAML and binding files to the build host. It checks the
