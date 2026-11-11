@@ -1,4 +1,6 @@
 """Intentional static errors; runtime guards still own int32 range and bool rejection."""
+from collections.abc import Generator
+
 from typing_shapes import Handler, InputValue, InvocationContext, OutputValue, Registry, Value
 
 
@@ -27,7 +29,12 @@ wrong_argument: Handler = wrong_input  # expect: assignment
 wrong_coroutine: Handler = wrong_async_result  # expect: assignment
 
 
-from collections.abc import Generator
+class DerivedInput(InputValue):  # expect: misc
+    pass
+
+
+class DerivedOutput(OutputValue):  # expect: misc
+    pass
 
 
 class ForeignAwaitable:
