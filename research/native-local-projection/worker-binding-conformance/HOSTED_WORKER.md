@@ -89,3 +89,21 @@ the local coordinator-to-worker path. Hosted REST deployment, external queue
 infrastructure, deployed worker failure recovery and HA remain separate
 acceptance work under
 [runtime #82](https://github.com/The-Pipeline-Framework/pipelineframework-runtime/issues/82).
+
+## Packaged coordinator ingress smoke
+
+Use the same immutable inputs and command above with `TPF_PACKAGED_INGRESS=1`
+and the AWS CLI on PATH. The runner creates test tables in its disposable DynamoDB
+Local container. It builds a Quarkus fast JAR with the generated Contract and a CDI
+producer for the prepared Release binding, then verifies the embedded runtime JAR
+against the candidate digest. The coordinator and both workers use loopback
+addresses. The client in this exercise uses Python's standard HTTP library.
+
+For each worker, the smoke registers the Release over HTTP, checks that denied
+admission leaves no execution or receipt, and checks the typed result and the
+worker's execution and trace IDs. It kills the coordinator after settlement and
+starts a fresh process over the same files and DynamoDB instance. With the worker
+offline, it retrieves the original Release, receipt and result and exercises
+same-key replay and conflict through HTTP. Normal event dispatch and sweep are
+enabled. Recovery driven by the sweep, interruption during dispatch and
+client disconnect are separate cases in the #82 recovery ledger.

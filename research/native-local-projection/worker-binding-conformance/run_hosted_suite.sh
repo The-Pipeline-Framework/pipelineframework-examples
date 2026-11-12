@@ -28,6 +28,7 @@ if not version or version.endswith("-SNAPSHOT"):
 print(version)
 PY
   )
+  if [[ "$component" == runtime ]]; then runtime_version=$version; fi
   "$repo/mvnw" -B "${maven_args[@]}" -f "$proof_dir/hosted-$component.pom.xml" \
     "-Dpipelineframework.$component.version=$version" \
     org.apache.maven.plugins:maven-dependency-plugin:3.9.0:build-classpath \
@@ -115,4 +116,9 @@ for ((attempt=0; attempt<30; attempt++)); do
   if curl --silent --max-time 2 --output /dev/null "$endpoint"; then break; fi
   sleep 1
 done
-"$python" -B "$proof_dir/run_hosted_worker.py" "$work/pins.json" "$endpoint"
+if [[ "${TPF_PACKAGED_INGRESS:-0}" == 1 ]]; then
+  "$python" -B "$proof_dir/run_packaged_ingress.py" "$work/pins.json" "$endpoint" \
+    "$runtime_version" "$repo/mvnw" "${maven_args[@]}"
+else
+  "$python" -B "$proof_dir/run_hosted_worker.py" "$work/pins.json" "$endpoint"
+fi
