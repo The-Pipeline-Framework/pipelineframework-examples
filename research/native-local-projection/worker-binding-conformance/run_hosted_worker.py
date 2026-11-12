@@ -259,7 +259,7 @@ def run(work, manifest, dynamo_endpoint):
             language, str(alternate), str(bundle), "-", str(work / f"{language}-different-truth"),
             f"https://localhost:{port}",
         ], work))
-        for field in ("contractVersion", "releaseVersion", "runnableArtifactId", "runnableArtifactDigest"):
+        for field in ("coordinatorContract", "releaseVersion", "runnableArtifactId", "runnableArtifactDigest"):
             require(launch["target"][field] == different_truth["target"][field],
                     f"Projection isolation changed {field}")
         require(launch["projection"] != different_truth["projection"], "Expected distinct compiled projections")
