@@ -1,6 +1,7 @@
 """Qualify both packaged native workers over HTTPS with the paired Java coordinator."""
 
 import argparse
+from base64 import b64decode
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -85,11 +86,14 @@ def signed(method, path, body, secret, *, timestamp=None, nonce=None):
     }
 
 
-def request(hostname, port, context, method, path, body, headers):
+def request(hostname, port, context, method, path, body, headers, *, projection_digest=None):
     client = http.client.HTTPSConnection(hostname, port, context=context, timeout=5)
     try:
         client.request(method, path, body=body, headers=headers)
         response = client.getresponse()
+        if projection_digest is not None:
+            require(response.headers.get_all("X-TPF-Worker-Projection-Digest") == [projection_digest],
+                    "Capability response did not identify its loaded projection exactly once")
         return response.status, response.read()
     finally:
         client.close()
@@ -112,7 +116,8 @@ def reject_before_business(work, launch):
             failures[label] = "certificate rejected"
         else:
             raise AssertionError(f"TLS accepted {label}")
-    status, payload = request("localhost", port, trusted, "GET", CAPABILITIES, b"", caps_auth)
+    status, payload = request("localhost", port, trusted, "GET", CAPABILITIES, b"", caps_auth,
+                              projection_digest="sha256:" + sha256(b64decode(launch["projection"], validate=True)).hexdigest())
     require(status == 200, f"Expected authenticated capabilities, got {status}")
     target = launch["target"]
     template = launch["command"]
@@ -247,6 +252,17 @@ def run(work, manifest, dynamo_endpoint):
             language, str(generated), str(bundle), "-", str(work / f"{language}-release"),
             f"https://localhost:{port}",
         ], work))
+        # Prepare another valid descriptor with different compiler provenance but the
+        # same Contract and runnable. A separately prepared host must not satisfy it.
+        different_truth = json.loads(command([
+            "java", "-cp", classpath, "NativeWorkerReleaseConformance",
+            language, str(alternate), str(bundle), "-", str(work / f"{language}-different-truth"),
+            f"https://localhost:{port}",
+        ], work))
+        for field in ("contractVersion", "releaseVersion", "runnableArtifactId", "runnableArtifactDigest"):
+            require(launch["target"][field] == different_truth["target"][field],
+                    f"Projection isolation changed {field}")
+        require(launch["projection"] != different_truth["projection"], "Expected distinct compiled projections")
         secret = secrets.token_urlsafe(32)
         launch.update(port=port, calls=str(work / f"{language}-calls.jsonl"), secret=secret,
                       key=str(work / "worker.key"), cert=str(work / "worker.pem"))
@@ -268,6 +284,9 @@ def run(work, manifest, dynamo_endpoint):
                 with host(language, work, node, launch):
                     capability, rejections = reject_before_business(work, launch)
                     rejections["java-wrong-artifact"] = wrong_artifact
+                    wrong_truth_file = write_launch(work, f"{language}-different-truth", launch | different_truth)
+                    rejections["java-mismatched-projection"] = java_admission_rejected(
+                        java_probe(classpath, work, wrong_truth_file, dynamo_endpoint), work)
                     untrusted = java_probe(classpath, work, launch_file, dynamo_endpoint, trust_ca=False)
                     rejections["java-untrusted-ca"] = java_admission_rejected(untrusted, work)
                     wrong_host = launch | {"target": launch["target"] | {"endpoint": f"https://127.0.0.1:{port}"}}

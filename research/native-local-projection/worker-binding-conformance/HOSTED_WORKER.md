@@ -62,7 +62,12 @@ MAVEN_ARGS=-Dmaven.repo.local=/path/to/extracted/candidate-repository \
 - The Java client uses ordinary certificate and hostname verification
   with an ephemeral fixture CA. Its hosted admission rejects an untrusted
   CA, wrong hostname and worker capability response with a mismatched
-  runnable digest. The workers reject invalid HMAC, expired timestamps,
+  runnable digest. It also rejects a separately prepared coordinator whose
+  Compiled Truth differs while its Contract, Release and runnable digest
+  match the real worker. The HTTPS capability response identifies the
+  projection validated at worker startup through
+  `X-TPF-Worker-Projection-Digest`; the ordinary capability JSON stays unchanged.
+  The workers reject invalid HMAC, expired timestamps,
   repeated nonces, wrong Release or range, and wrong type, encoding or
   int32 payload. The test observes zero business calls for those
   rejections and confirms that replaying a valid signed POST adds no calls.
