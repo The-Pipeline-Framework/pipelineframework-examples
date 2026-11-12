@@ -1,0 +1,54 @@
+version: 3
+appName: shared-expense
+basePackage: org.pipelineframework.examples.shared.expense
+transport: LOCAL
+platform: COMPUTE
+contract: {input: Request, output: Receipt}
+types:
+  ApprovalReply:
+    java: org.pipelineframework.examples.shared.expense.ApprovalReply
+    fields: [[approved, bool]]
+  Request:
+    java: org.pipelineframework.examples.shared.expense.Request
+    fields:
+      - [requestId, string]
+      - [amount, int64]
+  Pending:
+    java: org.pipelineframework.examples.shared.expense.Pending
+    fields:
+      - [requestId, string]
+      - [amount, int64]
+      - [revision, string]
+  Approved:
+    java: org.pipelineframework.examples.shared.expense.Approved
+    fields:
+      - [requestId, string]
+      - [approved, bool]
+  Receipt:
+    java: org.pipelineframework.examples.shared.expense.Receipt
+    fields:
+      - [requestId, string]
+      - [outcome, string]
+      - [revision, string]
+steps:
+  - name: Prepare
+    service: org.pipelineframework.examples.shared.expense.PrepareService
+    cardinality: ONE_TO_ONE
+    input: Request
+    output: Approved
+    java: {input: org.pipelineframework.examples.shared.expense.Request, output: org.pipelineframework.examples.shared.expense.Approved}
+    await:
+      operationOutput: {type: Pending, java: org.pipelineframework.examples.shared.expense.Pending}
+      timeout: PT5M
+      correlation: {strategy: interactionId}
+      transport: {type: interaction-api}
+      completion:
+        type: ApprovalReply
+        projector: org.pipelineframework.examples.shared.expense.ExpenseCompletionProjector
+  - name: Finish
+    service: org.pipelineframework.examples.shared.expense.FinishService
+    cardinality: ONE_TO_ONE
+    input: Approved
+    output: Receipt
+    java: {input: org.pipelineframework.examples.shared.expense.Approved, output: org.pipelineframework.examples.shared.expense.Receipt}
+    terminal: true
