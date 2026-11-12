@@ -5,6 +5,10 @@
       "command": ["bash", "scripts/run-system-test-suite.sh", "verify"],
       "timeoutMinutes": 120
     },
+    "native-hosted-worker": {
+      "command": ["bash", "research/native-local-projection/worker-binding-conformance/run_hosted_suite.sh"],
+      "timeoutMinutes": 15
+    },
     "restaurant-ha": {
       "command": ["bash", "scripts/run-system-test-suite.sh", "restaurant-ha"],
       "timeoutMinutes": 150
