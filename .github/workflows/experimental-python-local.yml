@@ -1,0 +1,71 @@
+name: Experimental Python LOCAL example
+
+on:
+  pull_request:
+    paths:
+      - 'experimental/native-python-local/**'
+      - '.github/workflows/experimental-python-local.yml'
+      - 'research/native-local-projection/runtime-policy/edge-scenarios.json'
+      - 'research/native-local-projection/runtime-policy/v1/scenarios.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: '3.14.10'
+            free_threaded: '0'
+            gil: '1'
+          - python: '3.14.10t'
+            free_threaded: '1'
+            gil: '0'
+          - python: '3.14.10t'
+            free_threaded: '1'
+            gil: '1'
+    defaults:
+      run:
+        working-directory: experimental/native-python-local
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Verify and install the pinned wheel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m fetch_runtime
+          python -m pip install --no-index --no-deps generated/runtime/*.whl
+          cp -R fixtures/project/generated generated/project
+          python -m verify_project
+      - name: Check nominal handler types
+        if: matrix.free_threaded == '0'
+        run: |
+          python -m pip install -r requirements-test.txt
+          python tests/check_types.py
+      - name: Exercise the installed runtime and unchanged shared cases
+        env:
+          PYTHON_GIL: ${{ matrix.gil }}
+          TPF_EXPECT_FREE_THREADED: ${{ matrix.free_threaded }}
+        run: |
+          python -W error - <<'PY'
+          import os, sys, sysconfig, unittest
+          gil = os.environ["PYTHON_GIL"] == "1"
+          assert sys.version_info[:3] == (3, 14, 10)
+          assert bool(sysconfig.get_config_var("Py_GIL_DISABLED")) == (os.environ["TPF_EXPECT_FREE_THREADED"] == "1")
+          assert sys._is_gil_enabled() == gil
+          suite = unittest.defaultTestLoader.discover("tests")
+          assert suite.countTestCases() > 0
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          assert sys._is_gil_enabled() == gil, "A dependency changed GIL state"
+          sys.exit(not result.wasSuccessful())
+          PY

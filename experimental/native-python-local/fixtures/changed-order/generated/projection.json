@@ -1,0 +1,80 @@
+{
+  "schemaVersion" : 1,
+  "profile" : "tpf-polyglot-unary-policy/1",
+  "kind" : "compiler-python-local",
+  "pipeline" : {
+    "id" : "python-qualification",
+    "inputType" : "InputValue",
+    "outputType" : "OutputValue",
+    "transport" : "LOCAL",
+    "platform" : "COMPUTE",
+    "execution" : "DIRECT"
+  },
+  "requiredCapabilities" : [ "pure", "linear", "unary", "local", "retry", "cancellation", "context" ],
+  "types" : [ {
+    "id" : "FirstValue",
+    "fields" : [ {
+      "name" : "value",
+      "type" : "int32",
+      "presence" : "REQUIRED",
+      "nullability" : "NON_NULL"
+    } ]
+  }, {
+    "id" : "InputValue",
+    "fields" : [ {
+      "name" : "value",
+      "type" : "int32",
+      "presence" : "REQUIRED",
+      "nullability" : "NON_NULL"
+    } ]
+  }, {
+    "id" : "OutputValue",
+    "fields" : [ {
+      "name" : "value",
+      "type" : "int32",
+      "presence" : "REQUIRED",
+      "nullability" : "NON_NULL"
+    } ]
+  }, {
+    "id" : "SecondValue",
+    "fields" : [ {
+      "name" : "value",
+      "type" : "int32",
+      "presence" : "REQUIRED",
+      "nullability" : "NON_NULL"
+    } ]
+  } ],
+  "steps" : [ {
+    "id" : "B",
+    "inputType" : "InputValue",
+    "outputType" : "FirstValue",
+    "handler" : "apply",
+    "retryLimit" : 1
+  }, {
+    "id" : "A",
+    "inputType" : "FirstValue",
+    "outputType" : "SecondValue",
+    "handler" : "normalize",
+    "retryLimit" : 0
+  }, {
+    "id" : "C",
+    "inputType" : "SecondValue",
+    "outputType" : "OutputValue",
+    "handler" : "finish",
+    "retryLimit" : 0
+  } ],
+  "contextKeys" : [ "executionId", "traceId" ],
+  "policy" : {
+    "failureMapping" : "structured-failure/1",
+    "retryOwner" : "LOCAL_SHELL",
+    "resultMapping" : "explicit-value/1",
+    "cancellation" : "first-accepted-terminal/1",
+    "context" : "explicit-snapshot/1",
+    "recovery" : "REJECT",
+    "legacyPolicy" : "REJECT"
+  },
+  "provenance" : {
+    "dslSha256" : "f0f7ad1ddd6c3c6a881ca5db57ac4ce6868f9334de2cb8893424e43ed4ed103e",
+    "bindingsSha256" : "f35dfff8c3370536f4c740a35b6dfb2ba2dd9df1d816f8823ea9479c2c68370f"
+  }
+}
