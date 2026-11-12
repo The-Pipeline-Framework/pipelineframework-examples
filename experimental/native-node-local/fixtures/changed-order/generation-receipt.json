@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "profile": "tpf-polyglot-unary-policy/1",
+  "status": "success",
+  "run": {
+    "id": "42877158151",
+    "attempt": "1"
+  },
+  "source": {
+    "repository": "the-pipeline-framework/pipelineframework-compiler",
+    "sha": "1a9c6b2736c2a87f7cc7e645502c75612cffa740",
+    "project": "qualification/node",
+    "inputs": [
+      {
+        "path": "qualification/node/pipeline.yaml",
+        "sha256": "ef64be1f4d473e89e0623b64b00ef1f05fafacbcea8e2266009577d184418bcc"
+      },
+      {
+        "path": "qualification/node/native-bindings.json",
+        "sha256": "68a5d99f0fb44685b161af3c3c792858b411e6fa6a517a583bb48f5760c425f4"
+      }
+    ]
+  },
+  "compiler": {
+    "repository": "The-Pipeline-Framework/pipelineframework-compiler",
+    "sha": "9b9172c8b4fd98b664bd14eb9b22f72dddb2b92f",
+    "artifact": "pipelineframework-compiler-26.11.2-SNAPSHOT.jar",
+    "sha256": "1fb91d539d3d8cc4b895fad3fa438f13404ce50013870b7593e9a43635705d7b",
+    "contractsVersion": "26.11.1",
+    "dependencies": [
+      {
+        "artifact": "org/pipelineframework/pipelineframework-api/26.11.1/pipelineframework-api-26.11.1.jar",
+        "sha256": "dc2e7f0ebe851d0093dc0af3f447660b16f76d103f9480fd0e47b724703dee84"
+      },
+      {
+        "artifact": "com/google/code/gson/gson/2.10.1/gson-2.10.1.jar",
+        "sha256": "4241c14a7727c34feea6507ec801318a3d4a90f070e4525681079fb94ee4c593"
+      },
+      {
+        "artifact": "org/pipelineframework/pipelineframework-runtime-protocol/26.11.1/pipelineframework-runtime-protocol-26.11.1.jar",
+        "sha256": "38026a66d07d17d4a9ec218cda8a26dc2944313519172be79b9c900b3e1e996e"
+      },
+      {
+        "artifact": "org/pipelineframework/pipelineframework-semantic-model/26.11.1/pipelineframework-semantic-model-26.11.1.jar",
+        "sha256": "3162f934eb946af2b027f4684cbf72b6eb4ce838e8dd0b5f2356d2f3eeced01a"
+      },
+      {
+        "artifact": "org/pipelineframework/pipelineframework-dsl/26.11.1/pipelineframework-dsl-26.11.1.jar",
+        "sha256": "e40c48f95c03c7ce9982531d041cd61418f4029dffd25a082876c9901037ae82"
+      },
+      {
+        "artifact": "com/fasterxml/jackson/core/jackson-annotations/2.22/jackson-annotations-2.22.jar",
+        "sha256": "21ddb598807d3a51a876704eb979d9296e1c6a6f47ab1826ff88c6d6a127a2d0"
+      },
+      {
+        "artifact": "com/fasterxml/jackson/core/jackson-databind/2.22.2/jackson-databind-2.22.2.jar",
+        "sha256": "d0da14c12b16b5d54719aa172d83b542ff4abeb8b0fb7db476fde8ceece760ca"
+      },
+      {
+        "artifact": "com/fasterxml/jackson/core/jackson-core/2.22.2/jackson-core-2.22.2.jar",
+        "sha256": "ff167a6317be15895706c26668f45b898efe40ab8780970658210fe1393d52a6"
+      },
+      {
+        "artifact": "com/fasterxml/jackson/datatype/jackson-datatype-jdk8/2.22.2/jackson-datatype-jdk8-2.22.2.jar",
+        "sha256": "5a767cc4bcb04034497422551ad5005b3affa3c8d691bda26d1e7f473485dc15"
+      },
+      {
+        "artifact": "com/squareup/javapoet/1.13.0/javapoet-1.13.0.jar",
+        "sha256": "4c7517e848a71b36d069d12bb3bf46a70fd4cda3105d822b0ed2e19c00b69291"
+      },
+      {
+        "artifact": "org/pipelineframework/pipelineframework-runtime-core/26.11.1/pipelineframework-runtime-core-26.11.1.jar",
+        "sha256": "cc9379d0d51f060f4531c78f938ee3b5e2b017f62a4ceca52e4067660abd4f2e"
+      },
+      {
+        "artifact": "org/yaml/snakeyaml/2.3/snakeyaml-2.3.jar",
+        "sha256": "63a76fe66b652360bd4c2c107e6f0258daa7d4bb492008ba8c26fcd230ff9146"
+      },
+      {
+        "artifact": "com/google/protobuf/protobuf-java/4.35.0/protobuf-java-4.35.0.jar",
+        "sha256": "400621a8f0aac52fab7ec88f492edd356f5a4355caa8f92028f217a8b5e4ac3b"
+      },
+      {
+        "artifact": "com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.jar",
+        "sha256": "766ad2a0783f2687962c8ad74ceecc38a28b9f72a2d085ee438b7813e928d0c7"
+      },
+      {
+        "artifact": "org/pipelineframework/representation-provider-api/26.11.1/representation-provider-api-26.11.1.jar",
+        "sha256": "cc846d380b1938bacc939ab17b1df607223676c9e00b02291645cc2823beed23"
+      },
+      {
+        "artifact": "org/jboss/logging/jboss-logging/3.6.3.Final/jboss-logging-3.6.3.Final.jar",
+        "sha256": "7c12ee575508f81e22b1db9334b969d0ec54ef0fd1dcba24eeab1a44235fc366"
+      }
+    ]
+  },
+  "files": {
+    "application.ts": "8381465302855757fd71d21808692ac28709f7d68ed2bf1023a27511e7e076bb",
+    "models.ts": "5b406c69931265b405dfc1d21746944d17e6150dd6025d53e0d81677d88d044a",
+    "projection.json": "339b31e58fc6b40d5cc77ce7d053808365c2715e34e585da9ebf555623945b90",
+    "diagnostics.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

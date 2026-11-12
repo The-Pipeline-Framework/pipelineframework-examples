@@ -1,0 +1,17 @@
+{
+  "name": "tpf-native-node-local-example",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.23.0"
+  },
+  "scripts": {
+    "typecheck": "node verify-project.mjs && tsc --project tsconfig.json",
+    "start": "node verify-project.mjs && node run.mjs",
+    "test": "npm run typecheck && node --test test/application.test.mjs test/fetch-runtime.test.mjs",
+    "test:conformance": "node --test test/policy.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
