@@ -1,0 +1,177 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.pipelineframework.examples.hostedecho</groupId>
+  <artifactId>hosted-echo</artifactId>
+  <version>1.0.0</version>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <tpf.version>26.11.2</tpf.version>
+    <maven.compiler.release>21</maven.compiler.release>
+    <quarkus.lambda.handler>aws-durable-action</quarkus.lambda.handler>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>software.amazon.awssdk</groupId>
+        <artifactId>bom</artifactId>
+        <version>2.55.0</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.quarkus.platform</groupId>
+        <artifactId>quarkus-bom</artifactId>
+        <version>3.39.2</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.quarkus.platform</groupId>
+        <artifactId>quarkus-amazon-services-bom</artifactId>
+        <version>3.39.2</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.pipelineframework.examples.hostedecho</groupId>
+      <artifactId>hosted-echo-provider</artifactId>
+      <version>1.0.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.pipelineframework</groupId>
+      <artifactId>pipelineframework</artifactId>
+      <version>${tpf.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.pipelineframework</groupId>
+      <artifactId>pipelineframework-aws-durable-coordination-host</artifactId>
+      <version>${tpf.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-amazon-lambda</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.pipelineframework</groupId>
+      <artifactId>pipelineframework-release-producer</artifactId>
+      <version>${tpf.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.pipelineframework</groupId>
+      <artifactId>pipelineframework-release-resolver</artifactId>
+      <version>${tpf.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+  </dependencies>
+  <build>
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+      </resource>
+      <resource>
+        <directory>${project.basedir}</directory>
+        <includes>
+          <include>pipeline.yaml</include>
+        </includes>
+      </resource>
+    </resources>
+    <plugins>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.14.0</version>
+        <configuration>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>org.pipelineframework.examples.hostedecho</groupId>
+              <artifactId>hosted-echo-provider</artifactId>
+              <version>1.0.0</version>
+            </path>
+            <path>
+              <groupId>org.pipelineframework</groupId>
+              <artifactId>pipelineframework-compiler</artifactId>
+              <version>${tpf.version}</version>
+            </path>
+          </annotationProcessorPaths>
+          <compilerArgs>
+            <arg>-Apipeline.config=${project.basedir}/pipeline.yaml</arg>
+            <arg>-Apipeline.generatedSourcesDir=${project.build.directory}/generated-sources/pipeline</arg>
+            <arg>-Apipeline.module=${project.artifactId}</arg>
+          </compilerArgs>
+        </configuration>
+        <executions>
+          <execution>
+            <id>compile-generated-command</id>
+            <phase>process-classes</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+            <configuration>
+              <proc>none</proc>
+              <compileSourceRoots>
+                <compileSourceRoot>${project.build.directory}/generated-sources/pipeline/orchestrator-client</compileSourceRoot>
+              </compileSourceRoots>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>io.quarkus</groupId>
+        <artifactId>quarkus-maven-plugin</artifactId>
+        <version>3.39.2</version>
+        <extensions>true</extensions>
+        <executions>
+          <execution>
+            <goals>
+              <goal>build</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>3.1.0</version>
+        <executions>
+          <execution>
+            <id>package-original-raw-host-group</id>
+            <phase>package</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target>
+
+                <unzip src="${project.build.directory}/function.zip" dest="${project.build.directory}/driver-package">
+                  <patternset>
+                    <include name="lib/**"/>
+                    <include name="META-INF/pipeline/**"/>
+                  </patternset>
+                </unzip>
+
+                <zip destfile="${project.build.directory}/driver.zip" basedir="${project.build.directory}/driver-package"/>
+
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+    </plugins>
+  </build>
+</project>

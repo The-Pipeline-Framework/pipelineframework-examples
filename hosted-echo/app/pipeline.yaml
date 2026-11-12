@@ -1,0 +1,46 @@
+version: 3
+appName: hosted-echo
+basePackage: com.example.echo
+transport: LOCAL
+platform: COMPUTE
+connectors:
+  store:
+    provider: fixture.echo
+    version: 1
+types:
+  EchoInput:
+    java: com.example.echo.EchoInput
+    fields: [[value, string]]
+  EchoAcknowledgement:
+    java: com.example.echo.EchoAcknowledgement
+    fields: [[value, string]]
+  EchoCompletion:
+    java: com.example.echo.EchoCompletion
+    fields: [[value, string]]
+  EchoOutput:
+    java: com.example.echo.EchoOutput
+    fields: [[value, string]]
+steps:
+  - name: Echo
+    kind: command
+    using: store
+    operation: echo
+    operationVersion: 1
+    commandIdGenerator: com.example.echo.application.StableId
+    duplicatePolicy: RETURN_RECORDED
+    cardinality: ONE_TO_ONE
+    input: EchoInput
+    output: EchoOutput
+    java:
+      input: com.example.echo.EchoInput
+      output: com.example.echo.EchoOutput
+    await:
+      operationOutput: {type: EchoAcknowledgement, java: com.example.echo.EchoAcknowledgement}
+      timeout: PT10M
+      correlation: {strategy: signedResumeToken}
+      callback:
+        name: completed
+        endpointResolver: com.example.echo.application.FixtureCallback
+        authenticator: com.example.echo.application.FixtureCallback
+      completion: {type: EchoCompletion, projector: com.example.echo.application.EchoProjector}
+    terminal: true
