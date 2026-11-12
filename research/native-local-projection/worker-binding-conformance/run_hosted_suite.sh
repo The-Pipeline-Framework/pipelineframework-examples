@@ -44,14 +44,24 @@ import sys
 resolved_path, packages, work = map(Path, sys.argv[1:])
 resolved = json.loads(resolved_path.read_bytes())
 native = json.loads((packages / "native-packages.json").read_bytes())
-runtime = resolved["components"]["runtime"]
-manifest_path = resolved_path.parent / "manifests/runtime/compatibility-candidate-manifest.json"
-manifest_bytes = manifest_path.read_bytes()
-if "sha256:" + sha256(manifest_bytes).hexdigest() != runtime["manifestDigest"]:
-    raise SystemExit("Runtime Maven manifest did not match the selected compatibility set")
-runtime_manifest = json.loads(manifest_bytes)
-if (runtime_manifest["sourceSha"] != runtime["sha"] or native["sourceSha"] != runtime["sha"]
-        or runtime_manifest["testedSha"] != native["testedSha"]):
+def selected_manifest(component):
+    selection = resolved["components"][component]
+    manifest_path = resolved_path.parent / "manifests" / component / "compatibility-candidate-manifest.json"
+    manifest_bytes = manifest_path.read_bytes()
+    if "sha256:" + sha256(manifest_bytes).hexdigest() != selection["manifestDigest"]:
+        raise SystemExit(f"{component} Maven manifest did not match the selected compatibility set")
+    manifest = json.loads(manifest_bytes)
+    if manifest["sourceSha"] != selection["sha"]:
+        raise SystemExit(f"{component} Maven manifest source did not match the selected compatibility set")
+    return manifest
+
+# The bootstrap verifies retained baseline JARs before archiving the Maven repository.
+# Compatibility manifests in the shard inputs cover components rebuilt for this set.
+compiler_rebuilt = any(candidate["component"] == "compiler" for candidate in resolved["candidates"])
+compiler_manifest = selected_manifest("compiler") if compiler_rebuilt else None
+runtime_manifest = selected_manifest("runtime")
+if (native["sourceSha"] != runtime_manifest["sourceSha"]
+        or native["testedSha"] != runtime_manifest["testedSha"]):
     raise SystemExit("Native packages and Maven runtime were not built from the same tested tree")
 
 def pin(path):
@@ -67,26 +77,30 @@ for field, suffix in (("nodePackage", ".tgz"), ("pythonWheel", ".whl")):
     pins[field] = pin(entries[0])
     if pins[field]["sha256"] != native[field]:
         raise SystemExit(f"Native candidate digest mismatch for {field}")
-for field, name in (("compilerClasspath", "compiler"), ("javaClasspath", "runtime")):
-    classpath = (work / f"{name}.classpath").read_text().strip().split(os.pathsep)
+for field, component, manifest, required in (
+    ("compilerClasspath", "compiler", compiler_manifest, ("pipelineframework-compiler",)),
+    ("javaClasspath", "runtime", runtime_manifest,
+     ("pipelineframework", "pipelineframework-release-producer", "pipelineframework-release-resolver")),
+):
+    classpath = (work / f"{component}.classpath").read_text().strip().split(os.pathsep)
     pins[field] = [pin(Path(jar)) for jar in classpath]
-    expected = resolved["components"][name]["mavenVersion"]
-    artifact = "pipelineframework-compiler" if name == "compiler" else "pipelineframework"
-    if not any(Path(jar["path"]).name == f"{artifact}-{expected}.jar" for jar in pins[field]):
-        raise SystemExit(f"Packaged classpath does not contain {artifact}:{expected}")
-runtime_files = {
-    file["name"]: file["sha256"]
-    for artifact in runtime_manifest["mavenArtifacts"]
-    for file in artifact["files"] if file["name"].endswith(".jar")
-}
-installed = {Path(jar["path"]).name: jar["sha256"] for jar in pins["javaClasspath"]}
-for artifact in ("pipelineframework", "pipelineframework-release-producer", "pipelineframework-release-resolver"):
-    name = f"{artifact}-{runtime['mavenVersion']}.jar"
-    if name not in runtime_files or name not in installed:
-        raise SystemExit(f"Runtime candidate classpath is missing {name}")
-for name in installed.keys() & runtime_files.keys():
-    if installed[name] != runtime_files[name]:
-        raise SystemExit(f"Installed runtime artifact digest differs from the candidate manifest: {name}")
+    manifest_files = {
+        file["name"]: file["sha256"]
+        for artifact in manifest["mavenArtifacts"]
+        for file in artifact["files"] if file["name"].endswith(".jar")
+    } if manifest is not None else {}
+    expected = resolved["components"][component]["mavenVersion"]
+    installed_names = {Path(jar["path"]).name for jar in pins[field]}
+    for artifact in required:
+        name = f"{artifact}-{expected}.jar"
+        if name not in installed_names:
+            raise SystemExit(f"{component} classpath is missing {name}")
+        if manifest is not None and name not in manifest_files:
+            raise SystemExit(f"{component} candidate manifest is missing {name}")
+    for jar in pins[field]:
+        name = Path(jar["path"]).name
+        if name in manifest_files and jar["sha256"] != manifest_files[name]:
+            raise SystemExit(f"Installed {component} artifact digest differs from the candidate manifest: {name}")
 (work / "pins.json").write_text(json.dumps(pins, indent=2))
 print(json.dumps({"artifactPins": pins, "nativeSource": native,
                   "compilerSource": resolved["components"]["compiler"]["sha"]}), flush=True)

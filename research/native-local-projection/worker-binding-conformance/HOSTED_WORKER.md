@@ -41,7 +41,11 @@ The coordinator packages both native workers from the tested runtime tree
 and passes the archived packages and selected Maven repository to the
 examples suite. The suite verifies the runtime candidate manifest and
 native receipts, then resolves the Java classpaths from the immutable
-coordinates. An archived set can be rerun through the same entry point:
+coordinates. For a compiler built in the set, the suite verifies the
+selected compiler manifest, source SHA and installed JAR digest. For a
+compiler retained from the baseline, the coordinator verifies the JAR
+before archiving the Maven repository and the suite records the local
+JAR digest. An archived set can be rerun through the same entry point:
 
 ```sh
 TPF_RESOLVED_SET=/path/to/inputs/resolved-set.json \
