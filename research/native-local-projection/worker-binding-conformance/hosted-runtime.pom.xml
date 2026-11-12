@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Resolve the standalone proof's installed Java runtime and Release producer. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.pipelineframework.research</groupId>
+  <artifactId>native-hosted-worker-runtime-dependencies</artifactId>
+  <version>0</version>
+  <dependencies>
+    <dependency>
+      <groupId>org.pipelineframework</groupId>
+      <artifactId>pipelineframework</artifactId>
+      <version>${pipelineframework.runtime.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.pipelineframework</groupId>
+      <artifactId>pipelineframework-release-producer</artifactId>
+      <version>${pipelineframework.runtime.version}</version>
+    </dependency>
+  </dependencies>
+</project>

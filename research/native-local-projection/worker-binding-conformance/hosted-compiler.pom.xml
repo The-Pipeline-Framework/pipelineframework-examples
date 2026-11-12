@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Resolve the standalone proof's compiler classpath without adding a reactor module. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.pipelineframework.research</groupId>
+  <artifactId>native-hosted-worker-compiler-dependencies</artifactId>
+  <version>0</version>
+  <dependencies>
+    <dependency>
+      <groupId>org.pipelineframework</groupId>
+      <artifactId>pipelineframework-compiler</artifactId>
+      <version>${pipelineframework.compiler.version}</version>
+    </dependency>
+  </dependencies>
+</project>
