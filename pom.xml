@@ -112,6 +112,7 @@
     </pluginRepositories>
 
     <modules>
+        <module>shared-coordinator-proof</module>
         <module>ai-sdk</module>
         <module>hosted-echo/provider</module>
         <module>hosted-echo/app</module>
