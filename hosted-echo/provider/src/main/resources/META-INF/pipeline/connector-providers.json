@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 7,
+  "providers": [
+    {
+      "id": "fixture.echo",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "operations": [
+        {
+          "id": "echo",
+          "kind": "tpf:command",
+          "majorVersion": 1,
+          "configurationSchema": {
+            "id": "fixture.echo.config",
+            "version": 1,
+            "fields": []
+          },
+          "commandCapabilities": {
+            "retryRedriveSupported": false,
+            "providerIdempotencySupported": false,
+            "reconciliationSupported": false,
+            "executionPosture": "AUTOMATED",
+            "maximumMachineConfirmation": "PROVIDER_ACKNOWLEDGED",
+            "userConfirmationSupported": false,
+            "durableReferenceKinds": []
+          },
+          "typeContract": {
+            "input": "com.example.echo.EchoInput",
+            "output": "com.example.echo.EchoAcknowledgement"
+          },
+          "callbacks": [
+            {
+              "id": "completed",
+              "typeContract": {
+                "input": "EchoCompletion"
+              },
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

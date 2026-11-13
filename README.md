@@ -10,6 +10,7 @@ of their own.
 - `ai-sdk` — AI-shaped reactive services, gRPC DTO mappings, and a six-step operator-delegation stress test
 - `callable-loop-proof` — an imported Block that owns an ordinary callable loop
 - `graphql-block-proof` — a GraphQL Block plus application-owned connector bindings
+- [Hosted Echo](hosted-echo/README.md) — a typed Command with signed Await and two locally verified Release packages
 - `local-command-proof` — replay-safe local Command execution
 - `openapi-capability-proof` — imported OpenAPI capabilities and callback jobs
 - `rag-composition-proof` — RAG composition across embedding, vector-store, and LLM connectors
