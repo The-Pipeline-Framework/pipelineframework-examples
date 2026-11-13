@@ -58,7 +58,10 @@ class PackagedBootstrapIT {
                     assertEquals("Pending", descriptor.path("canonicalInputTypeId").asText());
                     assertEquals("Approved", descriptor.path("canonicalOutputTypeId").asText());
                     assertEquals("ApprovalReply", descriptor.path("completionPayloadTypeId").asText());
-                    assertTrue(descriptor.path("transportConfig").isObject());
+                    assertFalse(descriptor.has("transportConfig"), "Worker transport settings must stay out of the compiled contract");
+                    assertTrue(contracts.get(app).path("steps").get(0).path("deferredCompletion")
+                        .path("transportConfigFingerprint").asText().matches("[0-9a-f]{64}"),
+                        "The compiled contract must retain the transport configuration fingerprint");
                 }
                 inventory.put(app, inventory(module));
                 var worker = start(module, Map.of("tpf.proof.worker.secret", "local-proof-worker-" + app,
