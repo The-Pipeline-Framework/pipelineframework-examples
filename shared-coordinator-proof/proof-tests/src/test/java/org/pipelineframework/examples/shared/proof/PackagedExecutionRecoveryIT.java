@@ -133,8 +133,7 @@ class PackagedExecutionRecoveryIT {
                 + "/releases/release-a1", null, ADMIN);
             assertEquals(200, metadata.statusCode(), metadata.body());
             assertEquals("release-a1", JSON.readTree(metadata.body()).path("releaseVersion").asText());
-            workers.put("a1", start(root.resolve("application-a1"), workerProperties.get("a1"), evidence.resolve("a1-restarted.log"), retainedA1Port));
-            awaitStatus(workers.get("a1"), RestTransitionWorkerProtocol.CAPABILITIES_PATH, null, 401);
+
             assertTrue(pendingList("tenant-b").isEmpty(), "Tenant B must not observe A1 interactions");
             assertEquals(404, request("GET", executionPath("tenant-b", a1), null, ADMIN).statusCode());
             // A forged payload with legitimate catalog/type fingerprints must not execute business code.
@@ -149,12 +148,14 @@ class PackagedExecutionRecoveryIT {
             } else assertEquals(400, malformedResponse.statusCode(), malformedResponse.body());
             coordinator.close(); coordinator = null;
             Path after = evidence.resolve("setup-after.json");
-            JSON.writeValue(after.toFile(), Map.of("releases", descriptors, "activations", List.of(activation("a2", contracts.get("a2"), "release-a1"))));
+            JSON.writeValue(after.toFile(), Map.of("releases", List.of(), "activations", List.of(activation("a2", contracts.get("a2"), "release-a1"))));
             properties.put("tpf.proof.release-setup", after.toString());
             properties.put("tpf.proof.bootstrap-evidence", evidence.resolve("coordinator-after.json").toString());
             coordinator = start(root.resolve("coordinator"), properties, evidence.resolve("coordinator-after.log"), coordinatorPort);
             awaitStatus(coordinator, pendingPath("tenant-a"), ADMIN, 200);
             assertEquals(interactionA1.path("interactionId"), pending("tenant-a", a1).path("interactionId"));
+            workers.put("a1", start(root.resolve("application-a1"), workerProperties.get("a1"), evidence.resolve("a1-restarted.log"), retainedA1Port));
+            awaitStatus(workers.get("a1"), RestTransitionWorkerProtocol.CAPABILITIES_PATH, null, 401);
             for (String app : workers.keySet()) registerWorker(app, workers.get(app), contracts.get(app), archives.get(app));
             complete(interactionA1, contracts.get("a1")); awaitState("tenant-a", a1, "SUCCEEDED");
             String a2 = submit("a2", contracts.get("a2"), Map.of("requestId", "expense-2", "amount", 20));

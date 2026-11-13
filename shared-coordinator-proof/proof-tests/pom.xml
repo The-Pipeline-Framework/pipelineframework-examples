@@ -10,6 +10,35 @@
     <artifactId>shared-coordinator-proof-tests</artifactId>
     <dependencies>
         <dependency>
+            <groupId>org.pipelineframework</groupId>
+            <artifactId>shared-coordinator-coordinator</artifactId>
+            <version>${project.version}</version>
+            <type>pom</type><scope>test</scope>
+            <exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.pipelineframework</groupId>
+            <artifactId>shared-coordinator-application-a1</artifactId>
+            <version>${project.version}</version>
+            <type>pom</type><scope>test</scope>
+            <exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.pipelineframework</groupId>
+            <artifactId>shared-coordinator-application-a2</artifactId>
+            <version>${project.version}</version>
+            <type>pom</type><scope>test</scope>
+            <exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.pipelineframework</groupId>
+            <artifactId>shared-coordinator-application-b</artifactId>
+            <version>${project.version}</version>
+            <type>pom</type><scope>test</scope>
+            <exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions>
+        </dependency>
+
+        <dependency>
             <groupId>org.pipelineframework</groupId><artifactId>pipelineframework</artifactId>
             <version>${pipelineframework.runtime.version}</version><scope>test</scope>
         </dependency>

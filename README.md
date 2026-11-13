@@ -33,5 +33,8 @@ The examples consume the active `26.11.1-SNAPSHOT` TPF artifacts from Maven Cent
 ./mvnw clean verify -U -Dgpg.skip -Dmaven.repo.local="$PWD/.m2/repository"
 ```
 
+Root verification runs `PackagedExecutionRecoveryIT` and requires an available Docker-compatible container runtime.
+
+
 Override the `pipelineframework.*.version` properties only when deliberately testing another compatible released
 artifact set.
