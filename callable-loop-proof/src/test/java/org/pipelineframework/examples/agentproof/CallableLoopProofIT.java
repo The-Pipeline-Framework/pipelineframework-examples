@@ -126,8 +126,10 @@ class CallableLoopProofIT {
         assertTrue(contract.contains("resolvedCallables"), contract);
         assertTrue(contract.contains("callable-loop-proof"), contract);
         assertTrue(contract.length() < 50_000, "recursive metadata must remain finite");
-        assertTrue(order.contains("PipelineInvocation_"), order);
-        assertTrue(order.length() < 500, "root order must remain finite");
+        var rootOrder = org.pipelineframework.config.pipeline.PipelineJson.mapper().readTree(order).required("order");
+        assertTrue(rootOrder.isArray(), "Root order must be an array");
+        assertEquals(1, rootOrder.size(), "Recursion must stay inside the single root invocation");
+        assertTrue(rootOrder.get(0).asText().contains("PipelineInvocation_"), rootOrder.toString());
         assertTrue(contract.contains("Decide"), contract);
         assertTrue(contract.contains("Invoke proposal"), contract);
         assertTrue(contract.contains("Reduce observation"), contract);
