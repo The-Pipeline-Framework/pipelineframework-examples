@@ -122,6 +122,8 @@
         <module>owned-payload-http-proof</module>
         <module>openapi-capability-proof/contracts</module>
         <module>openapi-capability-proof</module>
+        <module>openapi-capability-proof/mapping/connectors</module>
+        <module>openapi-capability-proof/mapping</module>
         <module>openapi-capability-proof/jobs</module>
         <module>rag-composition-proof/connectors</module>
         <module>rag-composition-proof</module>

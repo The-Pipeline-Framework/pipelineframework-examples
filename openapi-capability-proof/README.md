@@ -16,6 +16,13 @@ The application invokes the operations both as local named Query/Command pipelin
 ordinary `pipeline: callable-loop-proof` step. The packaged loop performs Query → observation →
 Command → observation → completion without OpenAPI-specific dispatch.
 
+The sibling [`mapping`](./mapping) application and its `mapping-caller` definition exercise the packaged OpenAPI representation-mapper Block.
+Its deterministic typed Query fixture first proposes a nonexistent source path, then corrects the proposal using the
+validator's diagnostics. `OpenApiMappingCompositionIT` invokes the generated caller and checks that
+the recursive result returns as `OpenApiRepresentationMappingProposal` with the original schema
+fingerprints and two completed turns. This is a composition proof, not an importer integration or
+a recommendation to invoke a model during Maven import. It does not exercise the LLM provider.
+
 After intentionally changing the local contract, review and update its `source.closureSha256` pin.
 Refresh the committed import outputs after changing the contract or import selection:
 
