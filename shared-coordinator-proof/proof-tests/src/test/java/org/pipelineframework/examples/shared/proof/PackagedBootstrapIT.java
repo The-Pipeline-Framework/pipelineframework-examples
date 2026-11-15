@@ -139,8 +139,10 @@ class PackagedBootstrapIT {
     }
 
     static Path artifact(Path module) throws Exception {
-        try (var files = Files.list(module.resolve("target/quarkus-app/app"))) {
-            var artifacts = files.filter(p -> p.getFileName().toString().endsWith(".jar")).toList();
+        Path target = module.resolve("target");
+        Path jars = Files.isRegularFile(target.resolve("function.zip")) ? target : target.resolve("quarkus-app/app");
+        try (var files = Files.list(jars)) {
+            var artifacts = files.filter(p -> p.getFileName().toString().endsWith(".jar") && !p.getFileName().toString().endsWith("-runner.jar")).toList();
             assertEquals(1, artifacts.size(), "Exactly one application JAR must be packaged: " + module);
             return artifacts.get(0);
         }
@@ -148,7 +150,9 @@ class PackagedBootstrapIT {
 
     static List<Map<String, String>> inventory(Path module) throws Exception {
         var result = new ArrayList<Map<String, String>>();
-        try (var files = Files.walk(module.resolve("target/quarkus-app"))) {
+        Path target = module.resolve("target");
+        Path closure = Files.isRegularFile(target.resolve("function.zip")) ? unpackFunction(module) : target.resolve("quarkus-app");
+        try (var files = Files.walk(closure)) {
             for (Path file : files.filter(p -> p.toString().endsWith(".jar")).sorted().toList()) {
                 result.add(Map.of("path", file.toString(), "sha256", digest(file)));
             }
@@ -157,7 +161,11 @@ class PackagedBootstrapIT {
         return result;
     }
     static String digest(Path file) throws Exception {
-        return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file)));
+        var digest = MessageDigest.getInstance("SHA-256");
+        try (var input = new java.security.DigestInputStream(Files.newInputStream(file), digest)) {
+            input.transferTo(java.io.OutputStream.nullOutputStream());
+        }
+        return java.util.HexFormat.of().formatHex(digest.digest());
     }
     static RunningPackage start(Path module, Map<String, String> properties, Path log) throws Exception {
         int port;
@@ -169,12 +177,41 @@ class PackagedBootstrapIT {
         command.add(Path.of(System.getProperty("java.home"), "bin/java").toString());
         command.add("-Dquarkus.http.port=" + port);
         properties.forEach((key, value) -> command.add("-D" + key + "=" + value));
-        command.addAll(List.of("-jar", module.resolve("target/quarkus-app/quarkus-run.jar").toString()));
+        if (Files.isRegularFile(module.resolve("target/function.zip"))) {
+            Path archive = unpackFunction(module);
+            Path harness = Path.of(LocalLambdaHttp.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            String classpath = String.join(java.io.File.pathSeparator, archive.toString(),
+                archive.resolve("lib/*").toString(), harness.toString());
+            command.addAll(List.of("-cp", classpath, LocalLambdaHttp.class.getName(), Integer.toString(port)));
+        } else {
+            command.addAll(List.of("-jar", module.resolve("target/quarkus-app/quarkus-run.jar").toString()));
+        }
         var builder = new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(log.toFile());
         builder.environment().keySet().removeIf(key -> key.startsWith("AWS_") || key.startsWith("PIPELINE_")
             || key.equals("JAVA_TOOL_OPTIONS") || key.equals("JDK_JAVA_OPTIONS"));
         return new RunningPackage(builder.start(), port, log);
     }
+    private static synchronized Path unpackFunction(Path module) throws Exception {
+        Path zip = module.resolve("target/function.zip");
+        Path output = module.resolve("target/local-lambda").resolve(digest(zip));
+        if (Files.exists(output.resolve(".unpacked"))) {
+            return output;
+        }
+        try (var archive = new java.util.zip.ZipFile(zip.toFile())) {
+            for (var entry : java.util.Collections.list(archive.entries())) {
+                if (entry.isDirectory()) continue;
+                Path file = output.resolve(entry.getName()).normalize();
+                if (!file.startsWith(output)) throw new IllegalStateException("Invalid Lambda ZIP entry");
+                Files.createDirectories(file.getParent());
+                try (var input = archive.getInputStream(entry)) {
+                    Files.copy(input, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        }
+        Files.createFile(output.resolve(".unpacked"));
+        return output;
+    }
+
     static void awaitStatus(RunningPackage process, String path, String bearer, int status) throws Exception {
         long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(40);
         while (System.nanoTime() < end && process.process().isAlive()) {

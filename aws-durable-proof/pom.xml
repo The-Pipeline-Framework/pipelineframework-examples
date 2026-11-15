@@ -45,6 +45,8 @@
         <module>generated-step-http</module>
         <module>generated-compute-http-control</module>
         <module>production-driver</module>
+        <module>shared-action</module>
+        <module>shared-await-lifecycle</module>
         <module>production-tests</module>
         <module>durable-driver</module>
         <module>action-host</module>
