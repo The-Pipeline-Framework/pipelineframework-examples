@@ -1,6 +1,6 @@
 # Shared Coordinator packaged proof
 
-This proof runs two independently compiled applications through a shared Coordinator. Its four tests cover classpath isolation, shared archive inspection, production package bootstrap, and execution through a Coordinator restart.
+This proof runs two independently compiled applications through a shared Coordinator. It covers classpath isolation, shared archive inspection, production package bootstrap, and execution through a Coordinator restart.
 
 ## Packaged topology
 
@@ -28,7 +28,7 @@ Use the repository's active component versions or the exact coordinated candidat
 
 The expense and parcel modules build `target/function.zip` and generate their worker-only Release descriptors with the Release Maven plugin. The Coordinator builds a separate `target/quarkus-app`. `PackagedBootstrapIT` checks unsigned and signed capability calls through the Lambda event bridge. It records the physical package paths and SHA-256 digests under `proof-tests/target/bootstrap-evidence`.
 
-`PackagedSharedArchivesIT` inspects the shared Action and Await lifecycle Lambda ZIPs, including their nested libraries, for fixture classes and compiled pipeline metadata. The runtime tests cover IAM signing and alias verification with controlled AWS responses. The loopback runner supplies the Lambda event envelope and exercises the TPF signature and authority checks. Live IAM and provider replacement acceptance need a deployed proof.
+`PackagedSharedArchivesIT` inspects the shared Action and Await lifecycle Lambda ZIPs, including their nested libraries, for fixture classes and compiled pipeline metadata. It also boots the dedicated lifecycle ZIP and checks that its worker callback route is present and administrative routes are hidden. The runtime tests cover IAM signing and alias verification with controlled AWS responses. The loopback runner supplies the Lambda event envelope and exercises the TPF signature and authority checks. Live IAM and provider replacement acceptance need a deployed proof.
 
 ## Execution and restart gate
 
