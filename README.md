@@ -10,6 +10,7 @@ of their own.
 - `ai-sdk` — AI-shaped reactive services, gRPC DTO mappings, and a six-step operator-delegation stress test
 - `callable-loop-proof` — an imported Block that owns an ordinary callable loop
 - `graphql-block-proof` — a GraphQL Block plus application-owned connector bindings
+- [Hosted Echo](hosted-echo/README.md) — a typed Command with signed Await and two locally verified Release packages
 - `local-command-proof` — replay-safe local Command execution
 - `openapi-capability-proof` — imported OpenAPI capabilities and callback jobs
 - `rag-composition-proof` — RAG composition across embedding, vector-store, and LLM connectors
@@ -32,6 +33,9 @@ The examples consume the active `26.11.1-SNAPSHOT` TPF artifacts from Maven Cent
 ```sh
 ./mvnw clean verify -U -Dgpg.skip -Dmaven.repo.local="$PWD/.m2/repository"
 ```
+
+Root verification runs `PackagedExecutionRecoveryIT` and requires an available Docker-compatible container runtime.
+
 
 Override the `pipelineframework.*.version` properties only when deliberately testing another compatible released
 artifact set.

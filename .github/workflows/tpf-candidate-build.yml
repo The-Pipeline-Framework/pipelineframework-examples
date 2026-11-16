@@ -31,11 +31,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+          cache: maven
+          cache-path: ${{ github.workspace }}/.m2/repository
 
       - name: Run the full owner-local verification once
+        # Give Central's snapshot endpoint time to recover from transient rate limits.
         run: >-
           ./mvnw -B -Dmaven.deploy.skip=true -Dgpg.skip=true -Dtpf.flatten.skip=true
-          -Dmaven.repo.local="${{ runner.temp }}/tpf-candidate-m2" clean verify
+          -Daether.connector.http.retryHandler.count.central-snapshots=6
+          -Daether.connector.http.retryHandler.interval.central-snapshots=15000
+          -Dmaven.repo.local="$GITHUB_WORKSPACE/.m2/repository" clean verify
 
       - name: Verify candidate publisher handoff
         run: python3 scripts/test-candidate-handoff.py

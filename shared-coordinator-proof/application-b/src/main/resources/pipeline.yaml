@@ -1,0 +1,58 @@
+version: 3
+appName: shared-parcel
+basePackage: org.pipelineframework.examples.shared.parcel
+transport: LOCAL
+platform: COMPUTE
+contract: {input: Request, output: Receipt}
+types:
+  Request:
+    java: org.pipelineframework.examples.shared.parcel.Request
+    fields:
+      - [parcelId, string]
+      - [weight, int32]
+  ValidatedRequest:
+    java: org.pipelineframework.examples.shared.parcel.ValidatedRequest
+    fields:
+      - [parcelId, string]
+      - [weight, int32]
+  Measured:
+    java: org.pipelineframework.examples.shared.parcel.Measured
+    fields:
+      - [parcelId, string]
+      - [charge, int64]
+  Label:
+    java: org.pipelineframework.examples.shared.parcel.Label
+    fields:
+      - [parcelId, string]
+      - [label, string]
+  Receipt:
+    java: org.pipelineframework.examples.shared.parcel.Receipt
+    fields:
+      - [parcelId, string]
+      - [receipt, string]
+steps:
+  - name: Validate
+    service: org.pipelineframework.examples.shared.parcel.ValidateService
+    cardinality: ONE_TO_ONE
+    input: Request
+    output: ValidatedRequest
+    java: {input: org.pipelineframework.examples.shared.parcel.Request, output: org.pipelineframework.examples.shared.parcel.ValidatedRequest}
+  - name: Prepare
+    service: org.pipelineframework.examples.shared.parcel.PrepareService
+    cardinality: ONE_TO_ONE
+    input: ValidatedRequest
+    output: Measured
+    java: {input: org.pipelineframework.examples.shared.parcel.ValidatedRequest, output: org.pipelineframework.examples.shared.parcel.Measured}
+  - name: Label
+    service: org.pipelineframework.examples.shared.parcel.LabelService
+    cardinality: ONE_TO_ONE
+    input: Measured
+    output: Label
+    java: {input: org.pipelineframework.examples.shared.parcel.Measured, output: org.pipelineframework.examples.shared.parcel.Label}
+  - name: Finish
+    service: org.pipelineframework.examples.shared.parcel.FinishService
+    cardinality: ONE_TO_ONE
+    input: Label
+    output: Receipt
+    java: {input: org.pipelineframework.examples.shared.parcel.Label, output: org.pipelineframework.examples.shared.parcel.Receipt}
+    terminal: true

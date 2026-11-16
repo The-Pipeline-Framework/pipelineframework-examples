@@ -112,7 +112,10 @@
     </pluginRepositories>
 
     <modules>
+        <module>shared-coordinator-proof</module>
         <module>ai-sdk</module>
+        <module>hosted-echo/provider</module>
+        <module>hosted-echo/app</module>
         <module>callable-loop-proof/block</module>
         <module>callable-loop-proof/connectors</module>
         <module>callable-loop-proof</module>
