@@ -37,3 +37,11 @@ The expense and parcel modules build `target/function.zip` and generate their wo
 `ProofReleaseSetup` is fixture-only deployment setup. It validates descriptors against exact compiled artifact bytes, records original immutable entry bindings through the existing registry, and uses conditional activation operations. It adds no production management endpoint. Application execution and completion use production control-plane and worker REST paths. Worker subprocess configuration contains no persistence connection, general administration credential, or Coordinator signing key; inherited provider/configuration variables are removed.
 
 The scenario retains an A1 Await across a Coordinator restart and conditional activation of A2, then checks A1/A2/B business markers, reused client keys in separate scopes, tenant isolation, and malformed canonical bytes with legitimate fingerprints. The test writes `execution-evidence/execution-proof.json` only after all assertions pass; source presence or compilation is not acceptance evidence. The runtime suites cover the separate failure windows around completion admission and commit, including lost replies, early callbacks, stale bindings, and timeout races. The packaged scenario tests restart while an interaction is waiting.
+
+The refreshable variant uses an atomically replaced local routing document as a
+fixture for the external publication boundary. It checks that A2 registration
+changes from denied to allowed while the same Coordinator process serves A1
+and B. It also checks conditional rollback with an in-flight A2 and execution
+after removing A1's route once the fixture's A1 executions finish. The separate
+`target/execution-evidence-refreshable` receipt uses the same packaged workers
+and persistent state. Its fixture owns activation setup and route removal.
