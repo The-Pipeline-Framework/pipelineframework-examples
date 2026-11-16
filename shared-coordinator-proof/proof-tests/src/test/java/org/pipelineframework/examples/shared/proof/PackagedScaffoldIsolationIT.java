@@ -61,11 +61,7 @@ class PackagedScaffoldIsolationIT {
   assertFalse(report.contains("application-b/target"));
  }
  private static Path artifact(Path module) throws Exception {
-  try (var files = Files.list(module.resolve("target/quarkus-app/app"))) {
-   var artifacts = files.filter(p -> p.getFileName().toString().endsWith(".jar")).toList();
-   assertEquals(1, artifacts.size(), "Exactly one application JAR must be packaged: " + module);
-   return artifacts.get(0);
-  }
+  return PackagedBootstrapIT.artifact(module);
  }
 
  private static void fork(Path module, String main, String... args) throws Exception {

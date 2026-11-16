@@ -8,7 +8,23 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>shared-coordinator-application-b</artifactId>
+    <properties>
+        <proof.worker>b</proof.worker>
+        <proof.input.type>org.pipelineframework.examples.shared.parcel.Request</proof.input.type>
+        <proof.input.json>{"parcelId":"parcel-1","weight":4}</proof.input.json>
+        <proof.output.type>org.pipelineframework.examples.shared.parcel.Receipt</proof.output.type>
+        <proof.output.json>{"parcelId":"parcel-1","receipt":"B:POST-12"}</proof.output.json>
+    </properties>
     <dependencies>
+        <dependency>
+            <groupId>org.pipelineframework</groupId>
+            <artifactId>pipelineframework-aws-durable-coordination-host</artifactId>
+            <version>${pipelineframework.runtime.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-amazon-lambda-http</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.pipelineframework</groupId>
             <artifactId>pipelineframework</artifactId>
@@ -25,6 +41,10 @@
     </dependencies>
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.pipelineframework</groupId>
+                <artifactId>pipelineframework-release-maven-plugin</artifactId>
+            </plugin>
             <plugin>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-maven-plugin</artifactId>

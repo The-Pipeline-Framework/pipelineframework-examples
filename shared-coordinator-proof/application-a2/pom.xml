@@ -8,7 +8,23 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>shared-coordinator-application-a2</artifactId>
+    <properties>
+        <proof.worker>a2</proof.worker>
+        <proof.input.type>org.pipelineframework.examples.shared.expense.Request</proof.input.type>
+        <proof.input.json>{"requestId":"expense-2","amount":20}</proof.input.json>
+        <proof.output.type>org.pipelineframework.examples.shared.expense.Receipt</proof.output.type>
+        <proof.output.json>{"requestId":"expense-2:projected-A2","outcome":"approved","revision":"A2"}</proof.output.json>
+    </properties>
     <dependencies>
+        <dependency>
+            <groupId>org.pipelineframework</groupId>
+            <artifactId>pipelineframework-aws-durable-coordination-host</artifactId>
+            <version>${pipelineframework.runtime.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-amazon-lambda-http</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.pipelineframework</groupId>
             <artifactId>pipelineframework</artifactId>
@@ -25,6 +41,10 @@
     </dependencies>
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.pipelineframework</groupId>
+                <artifactId>pipelineframework-release-maven-plugin</artifactId>
+            </plugin>
             <plugin>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-maven-plugin</artifactId>

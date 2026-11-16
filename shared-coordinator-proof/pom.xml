@@ -10,6 +10,58 @@
     <artifactId>shared-coordinator-proof</artifactId>
     <packaging>pom</packaging>
     <name>Shared Coordinator packaged proof</name>
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.pipelineframework</groupId>
+                    <artifactId>pipelineframework-release-maven-plugin</artifactId>
+                    <version>${pipelineframework.runtime.version}</version>
+                    <executions>
+                        <execution>
+                            <goals><goal>generate-release-descriptor</goal></goals>
+                        </execution>
+                    </executions>
+                    <configuration>
+                        <skip>false</skip>
+                        <allowLocalUris>true</allowLocalUris>
+                        <releaseVersion>release-${proof.worker}</releaseVersion>
+                        <artifactId>worker-${proof.worker}</artifactId>
+                        <artifactKind>lambda-zip</artifactKind>
+                        <artifactFile>${project.build.directory}/function.zip</artifactFile>
+                        <deployment>
+                            <profile>aws-durable-java21-rest-worker-v1</profile>
+                            <entries>
+                                <entry>
+                                    <entryId>entry-${proof.worker}</entryId>
+                                    <artifactId>worker-${proof.worker}</artifactId>
+                                    <runtimeId>${project.artifactId}</runtimeId>
+                                    <packagePath>.</packagePath>
+                                    <entryClass>io.quarkus.amazon.lambda.http.LambdaHttpHandler</entryClass>
+                                    <entryPackagePath>lib/io.quarkus.quarkus-amazon-lambda-http-${quarkus.platform.version}.jar</entryPackagePath>
+                                    <trigger>AWS_DURABLE_REST_WORKER</trigger>
+                                </entry>
+                            </entries>
+                            <check>
+                                <entryId>entry-${proof.worker}</entryId>
+                                <timeoutMillis>30000</timeoutMillis>
+                                <input>
+                                    <payloadTypeId>${proof.input.type}</payloadTypeId>
+                                    <payloadEncoding>application/tpf-transition+json</payloadEncoding>
+                                    <payload>${proof.input.json}</payload>
+                                </input>
+                                <expectedResult>
+                                    <payloadTypeId>${proof.output.type}</payloadTypeId>
+                                    <payloadEncoding>application/tpf-transition+json</payloadEncoding>
+                                    <payload>${proof.output.json}</payload>
+                                </expectedResult>
+                            </check>
+                        </deployment>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
     <modules>
         <module>application-a1</module>
         <module>application-a2</module>

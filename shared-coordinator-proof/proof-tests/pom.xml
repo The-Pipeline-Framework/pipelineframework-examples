@@ -11,6 +11,22 @@
     <dependencies>
         <dependency>
             <groupId>org.pipelineframework</groupId>
+            <artifactId>pipelineframework-aws-durable-proof-shared-action</artifactId>
+            <version>${project.version}</version>
+            <type>pom</type>
+            <scope>test</scope>
+            <exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.pipelineframework</groupId>
+            <artifactId>pipelineframework-aws-durable-proof-shared-await-lifecycle</artifactId>
+            <version>${project.version}</version>
+            <type>pom</type>
+            <scope>test</scope>
+            <exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.pipelineframework</groupId>
             <artifactId>shared-coordinator-coordinator</artifactId>
             <version>${project.version}</version>
             <type>pom</type><scope>test</scope>

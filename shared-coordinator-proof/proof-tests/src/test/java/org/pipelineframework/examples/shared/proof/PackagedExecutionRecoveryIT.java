@@ -69,7 +69,7 @@ class PackagedExecutionRecoveryIT {
                     jar.stream().filter(e -> !e.isDirectory() && e.getName().startsWith("META-INF/pipeline/")).map(e -> e.getName()).forEach(forbiddenResources::add);
                 }
                 contracts.put(app, contract); inventory.put(app, inventory(module));
-                Path archive = applicationArchive(module, jarPath, evidence.resolve("worker-" + app + ".zip"));
+                Path archive = module.resolve("target/function.zip");
                 archives.put(app, archive);
                 inventory.put(app + "Archive", Map.of("path", archive.toString(), "sha256", digest(archive), "closureInventoryKey", app,
                     "compiledContractSha256", HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(compiledContractBytes))));
@@ -96,7 +96,7 @@ class PackagedExecutionRecoveryIT {
                     "artifact-digest", checksum, "entry-id", "entry-" + app);
                 target.forEach((key, value) -> properties.put(prefix + key, value));
                 properties.put("tpf.proof.worker." + app + ".secret", secret(app));
-                Path descriptor = releaseDescriptor(evidence, app, archive, contract, checksum);
+                Path descriptor = module.resolve("target/pipeline-release.json");
                 var binding = new LinkedHashMap<String, Object>();
                 binding.put("tenantId", tenant); binding.put("pipelineId", pipeline); binding.put("contractVersion", contractVersion);
                 binding.put("releaseVersion", "release-" + app); binding.put("entryId", "entry-" + app);
@@ -166,6 +166,12 @@ class PackagedExecutionRecoveryIT {
             assertEquals(JSON.valueToTree(Map.of("requestId", "expense-1:projected-A1", "outcome", "approved", "revision", "A1")), resultA1);
             assertEquals(JSON.valueToTree(Map.of("requestId", "expense-2:projected-A2", "outcome", "approved", "revision", "A2")), resultA2);
             assertEquals(JSON.valueToTree(Map.of("parcelId", "parcel-1", "receipt", "B:POST-12")), resultB);
+            for (var proof : Map.of("a1", resultA1, "a2", resultA2, "b", resultB).entrySet()) {
+                Path release = root.resolve("application-" + proof.getKey()).resolve("target/pipeline-release.json");
+                var expected = JSON.readTree(release.toFile()).path("deployment").path("check")
+                    .path("expectedResult").path("payload").asText();
+                assertEquals(JSON.readTree(expected), proof.getValue(), proof.getKey());
+            }
             inventory.put("coordinator", inventory(root.resolve("coordinator")));
             inventory.put("phase", "PACKAGED_EXECUTION_RECOVERY_SCENARIO_PASSED");
             inventory.put("executions", Map.of("a1", a1, "a2", a2, "b", b));
@@ -178,41 +184,6 @@ class PackagedExecutionRecoveryIT {
         }
     }
 
-    private static Path applicationArchive(Path module, Path applicationJar, Path destination) throws Exception {
-        Path production = module.resolve("target/quarkus-app");
-        try (var output = new java.util.zip.ZipOutputStream(Files.newOutputStream(destination));
-             var paths = Files.walk(production); var jar = new JarFile(applicationJar.toFile())) {
-            for (Path file : paths.filter(Files::isRegularFile).sorted().toList()) {
-                var entry = new java.util.zip.ZipEntry(production.relativize(file).toString().replace('\\', '/'));
-                entry.setTime(0); output.putNextEntry(entry); Files.copy(file, output); output.closeEntry();
-            }
-            // Existing local Release admission reads Compiled Truth at the archive root.
-            var entry = new java.util.zip.ZipEntry("META-INF/pipeline/pipeline-contract.json"); entry.setTime(0);
-            output.putNextEntry(entry);
-            try (var input = jar.getInputStream(jar.getJarEntry(entry.getName()))) { input.transferTo(output); }
-            output.closeEntry();
-        }
-        return destination;
-    }
-
-    private static Path releaseDescriptor(Path evidence, String app, Path artifact, JsonNode contract, String digest) throws Exception {
-        var steps = new ArrayList<String>(); contract.path("steps").forEach(step -> steps.add(step.path("authoredName").asText()));
-        var capabilities = new LinkedHashSet<String>();
-        if (contract.path("capabilities").path("localTransitionExecution").asBoolean()) capabilities.add("local");
-        contract.path("capabilities").path("transitionWorkerProtocols").forEach(value -> capabilities.add(value.asText()));
-        var descriptor = new LinkedHashMap<String, Object>();
-        descriptor.put("schemaVersion", 2); descriptor.put("pipelineId", contract.path("pipelineId").asText());
-        descriptor.put("contractVersion", contract.path("contractVersion").asText()); descriptor.put("releaseVersion", "release-" + app);
-        descriptor.put("compiledTruthArtifactId", "worker-" + app);
-        descriptor.put("artifacts", List.of(Map.of("artifactId", "worker-" + app, "kind", "application-archive", "uri", artifact.toUri().toString(),
-            "digest", digest, "stepIds", steps, "capabilities", capabilities)));
-        var envelope = Map.of("payloadTypeId", "java.util.Map", "payloadEncoding", JsonTransitionPayloadCodec.ENCODING, "payload", "{}");
-        descriptor.put("deployment", Map.of("profile", "local-process", "entries", List.of(Map.of("entryId", "entry-" + app,
-            "artifactId", "worker-" + app, "runtimeId", contract.path("module").asText(), "packagePath", ".",
-            "entryClass", "io.quarkus.bootstrap.runner.QuarkusEntryPoint", "entryPackagePath", "quarkus-run.jar", "trigger", "http", "bindingIds", List.of())),
-            "bindings", List.of(), "check", Map.of("entryId", "entry-" + app, "input", envelope, "expectedResult", envelope, "timeoutMillis", 30_000)));
-        Path path = evidence.resolve("release-" + app + ".json"); JSON.writeValue(path.toFile(), descriptor); return path;
-    }
     private static Map<String, Object> activation(String app, JsonNode contract, String expected) {
         return Map.of("tenantId", tenant(app), "pipelineId", contract.path("pipelineId").asText(), "releaseVersion", "release-" + app,
             "expectedReleaseVersion", expected, "operationKey", "activate-" + app, "activatedAtEpochMs", System.currentTimeMillis());
