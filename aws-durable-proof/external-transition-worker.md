@@ -32,6 +32,14 @@ deployment of the OSS AWS Durable host.
   worker role needs no access to the coordinator's semantic stores, Work queue,
   callback functions, or resume-token secret. Do not copy that resume secret.
 
+- Before deploying the mapping, have the coordinator account add resource policies
+  to both queues for the exact `WorkerRoleArn`. Grant `sqs:ReceiveMessage`,
+  `sqs:DeleteMessage`, and `sqs:GetQueueAttributes` on the request queue and
+  `sqs:SendMessage` on the response queue. Cross-account access requires these
+  grants as well as the corresponding worker-role IAM permissions. The
+  standalone template takes existing queues and leaves their policies to the
+  queue owner. [Amazon SQS cross-account permissions](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/troubleshooting-access-denied.html#sqs-access-denied-queue-policy).
+
 ## Run and record
 
 1. In the isolated same-account control, submit a fresh client key and the release's
