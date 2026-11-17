@@ -175,6 +175,7 @@ class PackagedBootstrapIT {
     static RunningPackage start(Path module, Map<String, String> properties, Path log, int port) throws Exception {
         var command = new ArrayList<String>();
         command.add(Path.of(System.getProperty("java.home"), "bin/java").toString());
+        command.add("-Dquarkus.http.host=127.0.0.1");
         command.add("-Dquarkus.http.port=" + port);
         properties.forEach((key, value) -> command.add("-D" + key + "=" + value));
         if (Files.isRegularFile(module.resolve("target/function.zip"))) {
