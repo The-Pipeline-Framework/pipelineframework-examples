@@ -39,7 +39,7 @@ steps:
     java: {input: org.pipelineframework.examples.shared.expense.Request, output: org.pipelineframework.examples.shared.expense.Approved}
     await:
       operationOutput: {type: Pending, java: org.pipelineframework.examples.shared.expense.Pending}
-      timeout: PT5M
+      timeout: PT30M
       correlation: {strategy: interactionId}
       transport: {type: interaction-api}
       completion:
