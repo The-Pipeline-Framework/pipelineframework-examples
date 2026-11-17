@@ -44,6 +44,7 @@ final class NativeWorkerReleaseConformance {
     private final Path metadata;
     private final Path work;
     private final Language language;
+    private final URI endpoint;
     private final PipelineContractDescriptor contract;
     private final List<String> types;
     private final ObjectNode rejections = JSON.createObjectNode();
@@ -53,6 +54,7 @@ final class NativeWorkerReleaseConformance {
         Path generated = Path.of(args[1]);
         bundle = Path.of(args[2]);
         work = Files.createDirectory(Path.of(args[4]));
+        endpoint = URI.create(args.length == 6 ? args[5] : "https://worker.example");
         carrier = generated.resolve("compiled-truth.zip");
         metadata = Files.createDirectory(work.resolve("metadata"));
         Files.copy(generated.resolve("pipeline-contract.json"), metadata.resolve("pipeline-contract.json"));
@@ -65,7 +67,21 @@ final class NativeWorkerReleaseConformance {
 
     public static void main(String[] args) throws Exception {
         var proof = new NativeWorkerReleaseConformance(args);
-        System.out.println(JSON.writeValueAsString(proof.exercise(Path.of(args[3]))));
+        var evidence = args.length == 6 ? proof.prepareHosted() : proof.exercise(Path.of(args[3]));
+        System.out.println(JSON.writeValueAsString(evidence));
+    }
+
+    private ObjectNode prepareHosted() throws IOException {
+        Release release = produce("v1", "hosted");
+        var binding = prepare(release, "hosted");
+        var command = commandFor(release);
+        var attempt = binding.pin(command);
+        var evidence = launchInput(binding, attempt, command, false);
+        evidence.put("descriptor", release.descriptor().toString());
+        evidence.set("target", JSON.valueToTree(release.target()));
+        evidence.set("command", JSON.valueToTree(command));
+        evidence.set("receipt", receipt(attempt));
+        return evidence;
     }
 
     private ObjectNode exercise(Path alternateEntry) throws Exception {
@@ -181,7 +197,7 @@ final class NativeWorkerReleaseConformance {
         var runnable = release.artifacts().stream().filter(artifact -> WORKER.equals(artifact.artifactId()))
             .findFirst().orElseThrow();
         String digest = new ReleaseLoader().load(descriptor).descriptorDigest();
-        var target = new Target(TENANT, "worker-7", URI.create("https://worker.example"), "example-secret-ref",
+        var target = new Target(TENANT, "worker-7", endpoint, "example-secret-ref",
             language, releaseVersion, digest, runnable.artifactId(), runnable.digest(), contract, PROFILES);
         return new Release(descriptor, Path.of(URI.create(runnable.uri())), target);
     }
