@@ -1,0 +1,39 @@
+name: Experimental Node LOCAL example
+
+on:
+  pull_request:
+    paths:
+      - 'experimental/native-node-local/**'
+      - '.github/workflows/experimental-node-local.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  consumer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: experimental/native-node-local
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.2'
+          package-manager-cache: false
+      - name: Verify the runtime candidate package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node fetch-runtime.mjs
+      - name: Type-check and exercise the generated application
+        run: |
+          cp -R fixtures/project generated/project
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund ./generated/runtime/tpf-experimental-node-local-0.0.0.tgz
+          npm test
+          npm run test:conformance
