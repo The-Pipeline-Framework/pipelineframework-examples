@@ -55,9 +55,9 @@
         <pipelineframework.bom.version>26.11.3-SNAPSHOT</pipelineframework.bom.version>
         <pipelineframework.compiler.version>26.11.3-SNAPSHOT</pipelineframework.compiler.version>
         <pipelineframework.runtime.version>26.11.3-SNAPSHOT</pipelineframework.runtime.version>
-        <pipelineframework.connectors.version>26.11.1-SNAPSHOT</pipelineframework.connectors.version>
-        <pipelineframework.blocks.version>26.11.2-SNAPSHOT</pipelineframework.blocks.version>
-        <pipelineframework.expansions.version>26.11.1-SNAPSHOT</pipelineframework.expansions.version>
+        <pipelineframework.connectors.version>26.11.3-SNAPSHOT</pipelineframework.connectors.version>
+        <pipelineframework.blocks.version>26.11.3-SNAPSHOT</pipelineframework.blocks.version>
+        <pipelineframework.expansions.version>26.11.3-SNAPSHOT</pipelineframework.expansions.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
