@@ -58,6 +58,13 @@ Use a non-root deployment identity. The runner rejects account-root credentials 
 
 Use `--promotion-only` to run only the ten randomized callback/binding repetitions and history-loss recovery. Use `--history-only` to rerun only the latter against an already deployed stack. Lambda exposes stop and configured retention, but no API that expires one execution's history on demand, so the deployed test injects the same unavailable-history condition while a focused unit test verifies that the real `ResourceNotFoundException` response takes the replacement-generation path.
 
+## External transition Lambda
+
+The [cross-account transition proof](external-transition-worker.md) uses the
+reference AWS Durable coordinator and a standalone numbered transition Lambda
+in a second AWS account. It reuses the compiled application and signed SQS
+transition protocol.
+
 ## Promotion and rejection gates
 
 The architecture is promoted as the candidate initial AWS production coordinator because:
