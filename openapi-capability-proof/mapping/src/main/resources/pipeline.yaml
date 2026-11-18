@@ -1,0 +1,40 @@
+version: 3
+appName: OpenAPI Mapping Composition Proof
+basePackage: org.pipelineframework.examples.openapiproof
+transport: LOCAL
+platform: COMPUTE
+contract: { input: OpenApiMappingState, output: OpenApiRepresentationMappingProposal }
+
+connectors:
+  mapping-model:
+    provider: proof.mapping
+    version: 1
+
+blockBindings:
+  org.pipelineframework.openapi/openapi-representation-mapper:
+    mapping.model:
+      using: mapping-model
+
+pipelines:
+  mapping-caller:
+    input: OpenApiMappingState
+    output: OpenApiRepresentationMappingProposal
+    steps:
+      - name: Call mapping authoring
+        pipeline: openapi-representation-mapper
+        cardinality: ONE_TO_ONE
+        input: OpenApiMappingState
+        output: OpenApiRepresentationMappingProposal
+        java:
+          input: org.pipelineframework.blocks.openapi.mapping.OpenApiMappingState
+          output: org.pipelineframework.blocks.openapi.mapping.OpenApiRepresentationMappingProposal
+
+steps:
+  - name: Exercise mapping caller
+    pipeline: mapping-caller
+    cardinality: ONE_TO_ONE
+    input: OpenApiMappingState
+    output: OpenApiRepresentationMappingProposal
+    java:
+      input: org.pipelineframework.blocks.openapi.mapping.OpenApiMappingState
+      output: org.pipelineframework.blocks.openapi.mapping.OpenApiRepresentationMappingProposal
