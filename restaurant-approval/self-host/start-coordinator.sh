@@ -47,7 +47,7 @@ mkdir -p "${TPF_LOG_DIR}" "${TPF_PID_DIR}" "${TPF_RELEASE_STORE_ROOT}"
     -Dpipeline.module.monolith-svc.port="${TPF_COORDINATOR_PORT}" \
     -Dquarkus.rest-client.process-validate-order-request.url="http://localhost:${TPF_COORDINATOR_PORT}" \
     -Dquarkus.rest-client.process-create-pending-approval.url="http://localhost:${TPF_COORDINATOR_PORT}" \
-    -Dquarkus.rest-client.process-finalize-restaurant-decision.url="http://localhost:${TPF_COORDINATOR_PORT}" \
+    -Dquarkus.rest-client.process-finalize-restaurant-decision.url="${TPF_FINALIZE_REST_BASE_URL:-http://localhost:${TPF_COORDINATOR_PORT}}" \
     -Dquarkus.otel.enabled=false \
     -Dquarkus.otel.sdk.disabled=true \
     -Dquarkus.micrometer.export.prometheus.enabled=false \

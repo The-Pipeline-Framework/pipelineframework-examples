@@ -38,7 +38,7 @@ CI runs the same script with `--ci` so containers and volumes are always torn do
 ./restaurant-approval/self-host/container/run-container-ha-incident.sh
 ```
 
-This starts the same container stack, completes the await interaction with an intentionally invalid but API-valid restaurant decision, observes terminal failure through the durable coordinator, and calls the admin re-drive endpoint. The re-drive intentionally fails again because the bad payload is unchanged; this proves operator control without pretending unrecoverable input fixes itself.
+This starts the same stack and verifies that an invalid UUID completion is rejected without changing the waiting interaction. It then submits a valid typed decision with the existing final-step REST endpoint configured as unavailable. The durable coordinator reaches terminal failure and DLQ publication, and the same retained decision fails again when re-driven while that endpoint remains unavailable. Canonical v3 rejects the former invalid-UUID stimulus earlier, so this changes the fault stimulus while preserving the post-Await failure and re-drive assertions. `TPF_FINALIZE_REST_BASE_URL` configures the existing REST client; no business/runtime fault flag is introduced.
 
 ## Run The Recovery Path
 

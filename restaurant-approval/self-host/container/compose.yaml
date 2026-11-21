@@ -46,7 +46,7 @@ services:
         -Dpipeline.module.monolith-svc.port=8181
         -Dquarkus.rest-client.process-validate-order-request.url=http://localhost:8181
         -Dquarkus.rest-client.process-create-pending-approval.url=http://localhost:8181
-        -Dquarkus.rest-client.process-finalize-restaurant-decision.url=http://localhost:8181
+        -Dquarkus.rest-client.process-finalize-restaurant-decision.url=${TPF_FINALIZE_REST_BASE_URL:-http://localhost:8181}
         -Dquarkus.otel.enabled=false
         -Dquarkus.otel.sdk.disabled=true
         -Dquarkus.micrometer.export.prometheus.enabled=false
@@ -91,7 +91,7 @@ services:
         -Dpipeline.module.monolith-svc.port=8081
         -Dquarkus.rest-client.process-validate-order-request.url=http://localhost:8081
         -Dquarkus.rest-client.process-create-pending-approval.url=http://localhost:8081
-        -Dquarkus.rest-client.process-finalize-restaurant-decision.url=http://localhost:8081
+        -Dquarkus.rest-client.process-finalize-restaurant-decision.url=${TPF_FINALIZE_REST_BASE_URL:-http://localhost:8081}
         -Dquarkus.otel.enabled=false
         -Dquarkus.otel.sdk.disabled=true
         -Dquarkus.micrometer.export.prometheus.enabled=false

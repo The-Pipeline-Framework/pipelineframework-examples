@@ -1,3 +1,4 @@
+import base64
 import importlib.util
 import json
 import unittest
@@ -43,6 +44,35 @@ class ResultPayloadTest(unittest.TestCase):
         envelope = encoded(payload, "org.pipelineframework.restaurantapproval.common.domain.TerminalOrderState")
 
         self.assertEqual(payload, demo_client.decode_payload(envelope))
+
+    def test_decodes_v3_canonical_terminal_result(self):
+        terminal = {"outcome": "APPROVED", "restaurantStatus": "ACCEPTED"}
+        canonical = {"canonicalTypeId": "TerminalOrderState", "typeExpressionFingerprint": "retained-type",
+            "catalogFingerprint": "retained-catalog", "encoding": "application/tpf-canonical+json",
+            "encodingVersion": 1, "payload": base64.b64encode(json.dumps(terminal).encode()).decode()}
+        envelope = encoded(canonical, "org.pipelineframework.orchestrator.TypedDurablePayload")
+        self.assertEqual(terminal, demo_client.decode_payload(envelope))
+        canonical["canonicalTypeId"] = "ForeignType"
+        with self.assertRaisesRegex(ValueError, "Unexpected Restaurant terminal canonical type"):
+            demo_client.decode_payload(encoded(canonical, "org.pipelineframework.orchestrator.TypedDurablePayload"))
+
+    def test_submission_uses_the_v3_domain_input_instead_of_the_legacy_dto(self):
+        args = SimpleNamespace(base_url="http://localhost:8081", tenant_id="restaurant-demo", pipeline_id="restaurant", control_plane_token="test")
+        with patch.object(demo_client, "request", return_value={"executionId": "execution"}) as request:
+            demo_client.submit_order(args, "Ada", "Cafe", quiet=True)
+        payload = request.call_args.kwargs["body"]["inputPayload"]
+        self.assertEqual("org.pipelineframework.restaurantapproval.common.domain.PlaceRestaurantOrderRequest", payload["payloadTypeId"])
+        self.assertEqual("Ada", json.loads(payload["payload"])["customerName"])
+
+    def test_completion_supplies_the_canonical_rest_union_discriminator(self):
+        args = SimpleNamespace(base_url="http://localhost:8081", tenant_id="restaurant-demo", control_plane_token="token")
+        interaction = {"interactionId": "interaction", "requestPayload": {"orderId": "12345678-1234-4234-8234-123456789012"}}
+        with patch.object(demo_client, "request", return_value={"interactionId": "interaction"}) as request:
+            demo_client.complete(args, interaction, "declined")
+        self.assertEqual(demo_client.DECISION_TYPE, request.call_args.kwargs["body"]["responsePayload"]["payloadTypeId"])
+        decision = demo_client.decode_payload(request.call_args.kwargs["body"]["responsePayload"])
+        self.assertEqual("declined", decision["discriminator"])
+        self.assertEqual(interaction["requestPayload"]["orderId"], decision["declined"]["orderId"])
 
     def test_rejects_unexpected_payload_encoding(self):
         envelope = encoded("APPROVED", "java.lang.String")

@@ -15,6 +15,17 @@ public final class RestaurantDecisionJsonDeserializer extends JsonDeserializer<R
       throws IOException {
     JsonNode node = parser.getCodec().readTree(parser);
     if (node.has("value") && node.size() == 1) node = node.get("value");
+    if (!node.isObject()) throw new IOException("Decision must be an object");
+    boolean accepted = node.hasNonNull("accepted");
+    boolean declined = node.hasNonNull("declined");
+    if (accepted && declined) throw new IOException("Decision must contain exactly one variant");
+    if (accepted || declined) {
+      String selected = accepted ? "accepted" : "declined";
+      for (String field : new String[] {"type", "discriminator"}) {
+        if (node.hasNonNull(field) && !selected.equals(node.get(field).asText()))
+          throw new IOException("Decision discriminator conflicts with its payload");
+      }
+    }
     String type = resolveType(node);
     if ("accepted".equals(type)) {
       JsonNode payload = node.has("accepted") ? node.get("accepted") : node;
