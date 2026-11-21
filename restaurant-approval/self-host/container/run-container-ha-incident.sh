@@ -13,7 +13,7 @@ export TPF_RESTAURANT_IMAGE="${TPF_RESTAURANT_IMAGE:-localhost/restaurant-approv
 export TPF_TENANT_ID="${TPF_TENANT_ID:-restaurant-demo}"
 export TPF_PIPELINE_ID="${TPF_PIPELINE_ID:-org.pipelineframework.restaurantapproval}"
 export TPF_AWAIT_STEP_ID="${TPF_AWAIT_STEP_ID:-ProcessCreatePendingApprovalService}"
-export TPF_ORDER_TYPE="${TPF_ORDER_TYPE:-org.pipelineframework.restaurantapproval.common.dto.PlaceRestaurantOrderRequestDto}"
+export TPF_ORDER_TYPE="${TPF_ORDER_TYPE:-org.pipelineframework.restaurantapproval.common.domain.PlaceRestaurantOrderRequest}"
 export TPF_COORDINATOR_PORT="${TPF_COORDINATOR_PORT:-8081}"
 export TPF_WORKER_PORT="${TPF_WORKER_PORT:-8181}"
 export TPF_CONTROL_PLANE_TOKEN="${TPF_CONTROL_PLANE_TOKEN:-restaurant-control-plane-admin-token}"
@@ -26,6 +26,9 @@ export TPF_RUN_DIR="${TPF_RUN_DIR:-${MONOLITH_DIR}/target/tpf-container-ha-incid
 export TPF_RELEASE_DESCRIPTOR="${TPF_RELEASE_DESCRIPTOR:-${TPF_RUN_DIR}/pipeline-release.json}"
 export TPF_ORCHESTRATOR_MAX_RETRIES="${TPF_ORCHESTRATOR_MAX_RETRIES:-0}"
 export TPF_SKIP_CONTAINER_BUILD="${TPF_SKIP_CONTAINER_BUILD:-false}"
+
+# Exercise the existing REST client binding, leaving the business pipeline unchanged.
+export TPF_FINALIZE_REST_BASE_URL="${TPF_FINALIZE_REST_BASE_URL:-http://localhost:${TPF_COORDINATOR_PORT}/incident-unavailable}"
 
 CI_MODE=false
 if [[ "${1:-}" == "--ci" ]]; then

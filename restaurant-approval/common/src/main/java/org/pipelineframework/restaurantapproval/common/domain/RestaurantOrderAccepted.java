@@ -11,7 +11,7 @@ public record RestaurantOrderAccepted(
     @com.fasterxml.jackson.annotation.JsonFormat(shape = com.fasterxml.jackson.annotation.JsonFormat.Shape.STRING)
     Instant decidedAt,
     String note
-) {
+) implements java.io.Serializable {
 
   public RestaurantOrderAccepted {
     Objects.requireNonNull(orderId, "orderId must not be null");

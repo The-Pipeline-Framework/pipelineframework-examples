@@ -33,9 +33,11 @@ Run the failure-visibility path:
 ./restaurant-approval/self-host/run-self-hosted-incident.sh --ci
 ```
 
-This starts the same one-process coordinator, registers and activates the release, submits an order, waits for the restaurant approval await interaction, and then completes that interaction with a deliberately invalid but API-valid restaurant decision. The resumed execution fails through the normal queue-async path, publishes through the log DLQ provider, and prints an operator triage summary.
+This starts the same one-process coordinator, registers and activates the release, submits an order and waits for approval. It first verifies that an invalid UUID decision is rejected at admission without changing the waiting interaction. It then completes with a valid typed decision while the existing final-step REST client points to an unavailable endpoint. The resumed execution fails through the normal queue-async path, publishes through the log DLQ provider and prints an operator triage summary.
 
-The script also calls the admin re-drive endpoint for the failed execution. Because the demo intentionally re-drives the same invalid payload, it fails again. That is deliberate: the command proves the built-in operator control exists without pretending an unrecoverable bad payload can heal itself.
+The script also calls the admin re-drive endpoint for the failed execution. The same retained decision fails again while the final-step endpoint remains unavailable. This preserves the post-Await DLQ and failed re-drive obligations without weakening v3 admission validation.
+
+The incident script sets `TPF_FINALIZE_REST_BASE_URL` to an unavailable path through the existing Quarkus REST-client configuration; normal demos retain the original endpoint. No business logic or runtime fault flag is added. Before canonical v3 migration, the incident used an invalid UUID that was admitted and failed later; v3 validates it earlier, so the fault stimulus changes while terminal-failure, DLQ and re-drive assertions remain.
 
 The incident script sets `TPF_ORCHESTRATOR_MAX_RETRIES=0` by default so the failure reaches the terminal path immediately. Override that variable if you want to observe retry state first.
 
@@ -125,7 +127,7 @@ python3 restaurant-approval/self-host/demo-client.py result \
   --control-plane-token restaurant-control-plane-admin-token
 ```
 
-Run the incident flow against an already-started coordinator:
+Run the incident flow against a coordinator started with the final-step REST client configured to an unavailable endpoint (`TPF_FINALIZE_REST_BASE_URL`, as in the incident script):
 
 ```bash
 python3 restaurant-approval/self-host/demo-client.py run-incident \
@@ -152,7 +154,7 @@ For a normal await flow:
 For the incident flow:
 
 1. Submit and wait for `WAITING_EXTERNAL`.
-2. Complete the await interaction with the deliberately invalid decision payload.
+2. Verify invalid UUID rejection leaves Await unchanged; complete with a valid decision while the configured final-step endpoint is unavailable.
 3. Poll status until `FAILED`.
 4. Inspect `errorCode`, `errorMessage`, `attempt`, and `stepIndex` from the status response.
 5. Inspect `coordinator.log` for `Execution moved to DLQ` and the matching execution id.

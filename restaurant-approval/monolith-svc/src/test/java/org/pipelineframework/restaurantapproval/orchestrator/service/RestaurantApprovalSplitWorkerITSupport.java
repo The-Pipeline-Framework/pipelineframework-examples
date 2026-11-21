@@ -47,8 +47,8 @@ abstract class RestaurantApprovalSplitWorkerITSupport {
     protected static final String WORKER_SECRET = "restaurant-transition-worker-secret";
     protected static final String CONTROL_PLANE_ADMIN_TOKEN = "restaurant-control-plane-admin-token";
     private static final String PAYLOAD_ENCODING = "application/tpf-transition+json";
-    private static final String ORDER_REQUEST_DTO_TYPE =
-        "org.pipelineframework.restaurantapproval.common.dto.PlaceRestaurantOrderRequestDto";
+    private static final String ORDER_REQUEST_TYPE =
+        "org.pipelineframework.restaurantapproval.common.domain.PlaceRestaurantOrderRequest";
 
     private static final Duration STARTUP_TIMEOUT = Duration.ofSeconds(60);
     private static final Duration POLL_TIMEOUT = Duration.ofSeconds(60);
@@ -355,7 +355,7 @@ abstract class RestaurantApprovalSplitWorkerITSupport {
             ? Map.of(
                 "pipelineId", PIPELINE_ID,
                 "inputShape", ExecutionInputShape.UNI.name(),
-                "inputPayload", encodedPayload(order, ORDER_REQUEST_DTO_TYPE),
+                "inputPayload", encodedPayload(order, ORDER_REQUEST_TYPE),
                 "idempotencyKey", "order-" + requestId,
                 "outputStreaming", false)
             : order;
@@ -453,6 +453,7 @@ abstract class RestaurantApprovalSplitWorkerITSupport {
             "idempotencyKey", "complete-" + pending.interactionId(),
             "actor", "restaurant-demo-ui",
             "responsePayload", Map.of(
+                "discriminator", "accepted",
                 "accepted", Map.of(
                     "orderId", pending.orderId(),
                     "decidedAt", Instant.now().toString(),
@@ -467,6 +468,7 @@ abstract class RestaurantApprovalSplitWorkerITSupport {
             "idempotencyKey", "complete-" + pending.interactionId(),
             "actor", "restaurant-demo-ui",
             "responsePayload", Map.of(
+                "discriminator", "declined",
                 "declined", Map.of(
                     "orderId", pending.orderId(),
                     "decidedAt", Instant.now().toString(),
@@ -481,7 +483,7 @@ abstract class RestaurantApprovalSplitWorkerITSupport {
             ? Map.of(
                 "interactionId", pending.interactionId(),
                 "idempotencyKey", String.valueOf(request.get("idempotencyKey")),
-                "responsePayload", encodedPayload(request.get("responsePayload")),
+                "responsePayload", encodedPayload(request.get("responsePayload"), "org.pipelineframework.restaurantapproval.dto.RestaurantDecisionDto"),
                 "actor", String.valueOf(request.get("actor")))
             : request;
         return request(port, hosted)

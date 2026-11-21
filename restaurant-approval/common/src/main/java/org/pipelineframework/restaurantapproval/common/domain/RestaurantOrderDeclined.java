@@ -12,7 +12,7 @@ public record RestaurantOrderDeclined(
     Instant decidedAt,
     String note,
     String declineReason
-) {
+) implements java.io.Serializable {
 
   public RestaurantOrderDeclined {
     Objects.requireNonNull(orderId, "orderId must not be null");

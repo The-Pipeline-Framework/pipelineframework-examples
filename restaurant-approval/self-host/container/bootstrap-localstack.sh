@@ -108,6 +108,10 @@ create_table_if_missing tpf_await_interaction \
     AttributeName=query_pending_deadline_sort,AttributeType=S \
     AttributeName=query_deadline_key,AttributeType=S \
     AttributeName=query_deadline_sort,AttributeType=S \
+    AttributeName=query_continuation_key,AttributeType=S \
+    AttributeName=query_continuation_due_epoch_ms,AttributeType=N \
+    AttributeName=query_execution_key,AttributeType=S \
+    AttributeName=query_execution_sort,AttributeType=S \
   --key-schema \
     AttributeName=tenant_id,KeyType=HASH \
     AttributeName=interaction_id,KeyType=RANGE \
@@ -118,6 +122,8 @@ create_table_if_missing tpf_await_interaction \
     'IndexName=await-interaction-pending-by-group,KeySchema=[{AttributeName=query_pending_group_key,KeyType=HASH},{AttributeName=query_pending_deadline_sort,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
     'IndexName=await-interaction-pending-by-step,KeySchema=[{AttributeName=query_pending_step_key,KeyType=HASH},{AttributeName=query_pending_deadline_sort,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
     'IndexName=await-interaction-pending-by-deadline,KeySchema=[{AttributeName=query_deadline_key,KeyType=HASH},{AttributeName=query_deadline_sort,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+    'IndexName=await-interaction-continuation-work,KeySchema=[{AttributeName=query_continuation_key,KeyType=HASH},{AttributeName=query_continuation_due_epoch_ms,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+    'IndexName=await-interaction-by-execution,KeySchema=[{AttributeName=query_execution_key,KeyType=HASH},{AttributeName=query_execution_sort,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
   --billing-mode PAY_PER_REQUEST
 
 create_table_if_missing tpf_await_interaction_key \

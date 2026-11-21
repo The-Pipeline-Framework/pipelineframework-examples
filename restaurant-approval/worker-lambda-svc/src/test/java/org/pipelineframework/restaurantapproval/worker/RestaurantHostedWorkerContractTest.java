@@ -47,6 +47,13 @@ class RestaurantHostedWorkerContractTest {
         assertEquals(accepted ? "accepted" : "declined", legacy.path("type").asText());
         assertTrue(legacy.has(accepted ? "accepted" : "declined"));
         assertEquals(decision, PipelineJson.mapper().treeToValue(legacy, RestaurantDecision.class));
+        var bytes = new java.io.ByteArrayOutputStream();
+        try (var output = new java.io.ObjectOutputStream(bytes)) { output.writeObject(decision); }
+        try (var input = new java.io.ObjectInputStream(new java.io.ByteArrayInputStream(bytes.toByteArray()))) {
+            assertEquals(decision, input.readObject());
+        }
+        assertThrows(com.fasterxml.jackson.core.JsonProcessingException.class, () -> PipelineJson.mapper().readValue(
+            "{\"value\":{\"accepted\":{},\"declined\":{}}}", RestaurantDecision.class));
         var decisionCodec = codec(contract, "RestaurantDecision");
         var wire = decisionCodec.encode(decision);
         // Pin the public canonical JSON shape consumed by independent server-side clients.
