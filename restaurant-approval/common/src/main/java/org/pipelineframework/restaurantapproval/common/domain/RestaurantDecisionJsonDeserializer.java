@@ -14,21 +14,22 @@ public final class RestaurantDecisionJsonDeserializer extends JsonDeserializer<R
   public RestaurantDecision deserialize(JsonParser parser, DeserializationContext context)
       throws IOException {
     JsonNode node = parser.getCodec().readTree(parser);
+    if (node.has("value") && node.size() == 1) node = node.get("value");
     String type = resolveType(node);
     if ("accepted".equals(type)) {
       JsonNode payload = node.has("accepted") ? node.get("accepted") : node;
-      return new RestaurantOrderAccepted(
+      return new RestaurantDecision.Accepted(new RestaurantOrderAccepted(
           uuid(payload, "orderId"),
           instant(payload, "decidedAt"),
-          text(payload, "note"));
+          text(payload, "note")));
     }
     if ("declined".equals(type)) {
       JsonNode payload = node.has("declined") ? node.get("declined") : node;
-      return new RestaurantOrderDeclined(
+      return new RestaurantDecision.Declined(new RestaurantOrderDeclined(
           uuid(payload, "orderId"),
           instant(payload, "decidedAt"),
           text(payload, "note"),
-          text(payload, "declineReason"));
+          text(payload, "declineReason")));
     }
     throw new IOException("Unsupported RestaurantDecision type: " + type);
   }

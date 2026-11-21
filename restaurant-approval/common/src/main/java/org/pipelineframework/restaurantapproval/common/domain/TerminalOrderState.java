@@ -1,14 +1,14 @@
 package org.pipelineframework.restaurantapproval.common.domain;
 
 import java.io.Serializable;
-import java.time.Instant;
 import java.util.UUID;
+import java.time.Instant;
 
-public class TerminalOrderState extends BaseEntity implements Serializable {
-
-  public UUID orderId;
-  public String outcome;
-  public Instant resolvedAt;
-  public String restaurantStatus;
-  public String summary;
-}
+public record TerminalOrderState(
+    UUID orderId,
+    String outcome,
+    @com.fasterxml.jackson.annotation.JsonFormat(shape = com.fasterxml.jackson.annotation.JsonFormat.Shape.STRING)
+    Instant resolvedAt,
+    String restaurantStatus,
+    String summary
+) implements Serializable {}

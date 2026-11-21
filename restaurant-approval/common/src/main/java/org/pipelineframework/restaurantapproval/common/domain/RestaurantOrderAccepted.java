@@ -8,9 +8,10 @@ import java.util.UUID;
 @JsonTypeName("accepted")
 public record RestaurantOrderAccepted(
     UUID orderId,
+    @com.fasterxml.jackson.annotation.JsonFormat(shape = com.fasterxml.jackson.annotation.JsonFormat.Shape.STRING)
     Instant decidedAt,
     String note
-) implements RestaurantDecision {
+) {
 
   public RestaurantOrderAccepted {
     Objects.requireNonNull(orderId, "orderId must not be null");
@@ -18,19 +19,14 @@ public record RestaurantOrderAccepted(
     note = note == null ? "" : note.trim();
   }
 
-  @Override
+  public String discriminator() { return "accepted"; }
+
   public <R> R accept(RestaurantDecisionVisitor<R> visitor) {
     return visitor.accepted(this);
   }
 
-  @Override
   public TerminalOrderState toTerminalOrderState() {
-    TerminalOrderState state = new TerminalOrderState();
-    state.orderId = orderId;
-    state.outcome = "APPROVED";
-    state.resolvedAt = decidedAt;
-    state.restaurantStatus = "ACCEPTED";
-    state.summary = note.isBlank() ? "Restaurant approved the order." : note;
-    return state;
+    return new TerminalOrderState(orderId, "APPROVED", decidedAt, "ACCEPTED",
+        note.isBlank() ? "Restaurant approved the order." : note);
   }
 }
