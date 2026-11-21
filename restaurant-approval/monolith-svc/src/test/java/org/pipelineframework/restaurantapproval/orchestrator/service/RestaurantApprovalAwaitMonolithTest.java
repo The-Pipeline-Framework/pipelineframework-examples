@@ -74,6 +74,24 @@ class RestaurantApprovalAwaitMonolithTest {
         assertNotNull(result.getString("resolvedAt"));
     }
 
+    @Test
+    void legacyDecisionAdapterRejectsConflictingVariantsWithoutCompletingTheOrder() throws InterruptedException {
+        var accepted = submitOrder("Ada", "Cafe TPF");
+        awaitExecutionStatus(accepted.executionId(), ExecutionStatus.WAITING_EXTERNAL);
+        var pending = awaitPendingInteraction(accepted.executionId());
+        var payload = Map.of("orderId", pending.orderId(), "decidedAt", Instant.now().toString(), "note", "Approved");
+        for (var decision : List.of(
+                Map.of("discriminator", "declined", "accepted", payload),
+                Map.of("discriminator", "accepted", "accepted", payload, "declined", payload))) {
+            given().header("x-tenant-id", TENANT_ID).contentType(ContentType.JSON)
+                .body(Map.of("interactionId", pending.interactionId(), "idempotencyKey", "invalid-" + pending.interactionId(), "responsePayload", decision))
+                .post("/pipeline/interactions/complete").then().statusCode(400);
+            assertEquals(ExecutionStatus.WAITING_EXTERNAL, awaitExecutionStatus(accepted.executionId(), ExecutionStatus.WAITING_EXTERNAL).status());
+        }
+        completeAccepted(pending);
+        awaitExecutionStatus(accepted.executionId(), ExecutionStatus.SUCCEEDED);
+    }
+
     private static RunAsyncAcceptedDto submitOrder(String customerName, String restaurantName) {
         String requestId = UUID.randomUUID().toString();
         Map<String, Object> request = Map.of(
