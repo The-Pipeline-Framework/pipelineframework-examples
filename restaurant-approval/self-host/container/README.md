@@ -38,7 +38,7 @@ CI runs the same script with `--ci` so containers and volumes are always torn do
 ./restaurant-approval/self-host/container/run-container-ha-incident.sh
 ```
 
-This starts the same container stack, completes the await interaction with an intentionally invalid but API-valid restaurant decision, observes terminal failure through the durable coordinator, and calls the admin re-drive endpoint. The re-drive intentionally fails again because the bad payload is unchanged; this proves operator control without pretending unrecoverable input fixes itself.
+This starts the same stack and verifies that an invalid UUID completion is rejected without changing the waiting interaction. It then submits a valid typed decision with the existing final-step REST endpoint configured as unavailable. The durable coordinator reaches terminal failure and DLQ publication, and the same retained decision fails again when re-driven while that endpoint remains unavailable. Canonical v3 rejects the former invalid-UUID stimulus earlier, so this changes the fault stimulus while preserving the post-Await failure and re-drive assertions. `TPF_FINALIZE_REST_BASE_URL` configures the existing REST client; no business/runtime fault flag is introduced.
 
 ## Run The Recovery Path
 
@@ -49,6 +49,12 @@ This starts the same container stack, completes the await interaction with an in
 This keeps LocalStack running while restarting runtime processes. The script submits one execution, waits for `WAITING_EXTERNAL`, restarts the coordinator, verifies the pending await state is still readable, completes the await, and verifies the result. It then submits another execution, restarts the REST worker, re-registers the worker lifecycle record, completes the await, and verifies the resumed transition succeeds through the restarted worker.
 
 This is a process-restart proof, not a mid-transition crash injection test. It proves the durable stores survive coordinator and worker restarts at an await boundary, which is the deterministic recovery surface in this example.
+
+Bootstrap reuses a retained `tpf_await_interaction` table only when its keys,
+attribute types and all required indexes match the current fixture schema. An
+incompatible table stops bootstrap with explicit local reset guidance. It does
+not migrate, delete or reset retained data. Only run the printed `down -v`
+command yourself if that local demo data may be discarded.
 
 ## Local Defaults
 

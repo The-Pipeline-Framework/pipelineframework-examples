@@ -1,10 +1,12 @@
-version: 2
+version: 3
 appName: Restaurant Approval
 basePackage: org.pipelineframework.restaurantapproval
 transport: REST
-runtimeLayout: monolith
+platform: COMPUTE
+contract: {input: PlaceRestaurantOrderRequest, output: TerminalOrderState}
 types:
   PlaceRestaurantOrderRequest:
+    java: org.pipelineframework.restaurantapproval.common.domain.PlaceRestaurantOrderRequest
     fields:
       - [requestId, uuid]
       - [customerName, string]
@@ -13,6 +15,7 @@ types:
       - [totalAmount, decimal]
       - [currency, string]
   ValidatedRestaurantOrderRequest:
+    java: org.pipelineframework.restaurantapproval.common.domain.ValidatedRestaurantOrderRequest
     fields:
       - [requestId, uuid]
       - [customerName, string]
@@ -22,6 +25,7 @@ types:
       - [currency, string]
       - [validatedAt, timestamp]
   PendingRestaurantApproval:
+    java: org.pipelineframework.restaurantapproval.common.domain.PendingRestaurantApproval
     fields:
       - [orderId, uuid]
       - [requestId, uuid]
@@ -32,45 +36,48 @@ types:
       - [currency, string]
       - [createdAt, timestamp]
   RestaurantOrderAccepted:
+    java: org.pipelineframework.restaurantapproval.common.domain.RestaurantOrderAccepted
     fields:
       - [orderId, uuid]
       - [decidedAt, timestamp]
       - [note, string]
   RestaurantOrderDeclined:
+    java: org.pipelineframework.restaurantapproval.common.domain.RestaurantOrderDeclined
     fields:
       - [orderId, uuid]
       - [decidedAt, timestamp]
       - [note, string]
       - [declineReason, string]
   TerminalOrderState:
+    java: org.pipelineframework.restaurantapproval.common.domain.TerminalOrderState
     fields:
       - [orderId, uuid]
       - [outcome, string]
       - [resolvedAt, timestamp]
       - [restaurantStatus, string]
       - [summary, string]
-unions:
   RestaurantDecision:
+    java: org.pipelineframework.restaurantapproval.common.domain.RestaurantDecision
     variants:
-      accepted:
-        type: RestaurantOrderAccepted
-      declined:
-        type: RestaurantOrderDeclined
+      accepted: RestaurantOrderAccepted
+      declined: RestaurantOrderDeclined
 steps:
   - name: Validate Order Request
     service: org.pipelineframework.restaurantapproval.validate_order_request.service.ProcessValidateOrderRequestService
     cardinality: ONE_TO_ONE
-    input: org.pipelineframework.restaurantapproval.common.domain.PlaceRestaurantOrderRequest
-    inputTypeName: PlaceRestaurantOrderRequest
-    output: org.pipelineframework.restaurantapproval.common.domain.ValidatedRestaurantOrderRequest
-    outputTypeName: ValidatedRestaurantOrderRequest
+    input: PlaceRestaurantOrderRequest
+    output: ValidatedRestaurantOrderRequest
+    java:
+      input: org.pipelineframework.restaurantapproval.common.domain.PlaceRestaurantOrderRequest
+      output: org.pipelineframework.restaurantapproval.common.domain.ValidatedRestaurantOrderRequest
   - name: Create Pending Approval
     service: org.pipelineframework.restaurantapproval.create_pending_approval.service.ProcessCreatePendingApprovalService
     cardinality: ONE_TO_ONE
-    input: org.pipelineframework.restaurantapproval.common.domain.ValidatedRestaurantOrderRequest
-    inputTypeName: ValidatedRestaurantOrderRequest
-    output: org.pipelineframework.restaurantapproval.common.domain.RestaurantDecision
-    outputTypeName: RestaurantDecision
+    input: ValidatedRestaurantOrderRequest
+    output: RestaurantDecision
+    java:
+      input: org.pipelineframework.restaurantapproval.common.domain.ValidatedRestaurantOrderRequest
+      output: org.pipelineframework.restaurantapproval.common.domain.RestaurantDecision
     await:
       operationOutput:
         type: PendingRestaurantApproval
@@ -85,8 +92,9 @@ steps:
   - name: Finalize Restaurant Decision
     service: org.pipelineframework.restaurantapproval.finalize_restaurant_decision.service.ProcessFinalizeRestaurantDecisionService
     cardinality: ONE_TO_ONE
-    input: org.pipelineframework.restaurantapproval.common.domain.RestaurantDecision
-    inputTypeName: RestaurantDecision
-    output: org.pipelineframework.restaurantapproval.common.domain.TerminalOrderState
-    outputTypeName: TerminalOrderState
+    input: RestaurantDecision
+    output: TerminalOrderState
+    java:
+      input: org.pipelineframework.restaurantapproval.common.domain.RestaurantDecision
+      output: org.pipelineframework.restaurantapproval.common.domain.TerminalOrderState
     terminal: true

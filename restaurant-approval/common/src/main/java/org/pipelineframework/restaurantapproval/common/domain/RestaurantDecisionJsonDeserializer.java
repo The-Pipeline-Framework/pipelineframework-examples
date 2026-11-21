@@ -14,21 +14,33 @@ public final class RestaurantDecisionJsonDeserializer extends JsonDeserializer<R
   public RestaurantDecision deserialize(JsonParser parser, DeserializationContext context)
       throws IOException {
     JsonNode node = parser.getCodec().readTree(parser);
+    if (node.has("value") && node.size() == 1) node = node.get("value");
+    if (!node.isObject()) throw new IOException("Decision must be an object");
+    boolean accepted = node.hasNonNull("accepted");
+    boolean declined = node.hasNonNull("declined");
+    if (accepted && declined) throw new IOException("Decision must contain exactly one variant");
+    if (accepted || declined) {
+      String selected = accepted ? "accepted" : "declined";
+      for (String field : new String[] {"type", "discriminator"}) {
+        if (node.hasNonNull(field) && !selected.equals(node.get(field).asText()))
+          throw new IOException("Decision discriminator conflicts with its payload");
+      }
+    }
     String type = resolveType(node);
     if ("accepted".equals(type)) {
       JsonNode payload = node.has("accepted") ? node.get("accepted") : node;
-      return new RestaurantOrderAccepted(
+      return new RestaurantDecision.Accepted(new RestaurantOrderAccepted(
           uuid(payload, "orderId"),
           instant(payload, "decidedAt"),
-          text(payload, "note"));
+          text(payload, "note")));
     }
     if ("declined".equals(type)) {
       JsonNode payload = node.has("declined") ? node.get("declined") : node;
-      return new RestaurantOrderDeclined(
+      return new RestaurantDecision.Declined(new RestaurantOrderDeclined(
           uuid(payload, "orderId"),
           instant(payload, "decidedAt"),
           text(payload, "note"),
-          text(payload, "declineReason"));
+          text(payload, "declineReason")));
     }
     throw new IOException("Unsupported RestaurantDecision type: " + type);
   }
