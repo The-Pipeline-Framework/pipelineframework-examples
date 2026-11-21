@@ -32,6 +32,77 @@ def local_artifact(group, artifact, version, packaging="jar", body=""):
             jar.writestr("META-INF/pipeline/blocks.json", json.dumps({"version": version}))
 
 
+def verify_restaurant_contract_alignment():
+    """Resolve actual authored properties/dependencies offline with distinct BOM and Contracts identities."""
+    root = ET.parse(ROOT / "pom.xml").getroot()
+    restaurant = ET.parse(ROOT / "restaurant-approval/pom.xml").getroot()
+    worker = ET.parse(ROOT / "restaurant-approval/worker-lambda-svc/pom.xml").getroot()
+    bom_version = "0.0.0-restaurant-probe-bom"
+    contracts_version = "0.0.0-restaurant-probe-contracts"
+    explicit_version = "0.0.0-restaurant-probe-explicit"
+    local_artifact("org.pipelineframework", "pipelineframework-bom", bom_version, "pom")
+    release_plugin = next(plugin for plugin in worker.findall("m:build/m:plugins/m:plugin", NS)
+                          if plugin.findtext("m:artifactId", namespaces=NS) == "pipelineframework-release-maven-plugin")
+    managed_contracts = [dependency for dependency in restaurant.findall("m:dependencyManagement/m:dependencies/m:dependency", NS)
+                         if dependency.findtext("m:version", namespaces=NS) == "${restaurant.contracts.version}"]
+    assert len(managed_contracts) == 9
+    with tempfile.TemporaryDirectory(prefix="tpf-restaurant-contract-alignment-") as temporary:
+        directory = pathlib.Path(temporary)
+        parent = ET.Element("project")
+        for name, value in (("modelVersion", "4.0.0"), ("groupId", "test"), ("artifactId", "contract-parent"),
+                            ("version", "1"), ("packaging", "pom")):
+            ET.SubElement(parent, name).text = value
+        properties = ET.SubElement(parent, "properties")
+        for name in ("pipelineframework.bom.version", "pipelineframework.contracts.version", "pipelineframework.runtime.version"):
+            authored = root.find("m:properties/m:" + name, NS)
+            assert authored is not None, "root must expose the canonical Contracts compatibility override"
+            properties.append(copy.deepcopy(authored))
+        imports = ET.SubElement(ET.SubElement(parent, "dependencyManagement"), "dependencies")
+        imports.append(copy.deepcopy(next(dependency for dependency in root.findall("m:dependencyManagement/m:dependencies/m:dependency", NS)
+                                         if dependency.findtext("m:artifactId", namespaces=NS) == "pipelineframework-bom")))
+        ET.ElementTree(parent).write(directory / "parent.xml", encoding="unicode")
+        child = ET.Element("project")
+        ET.SubElement(child, "modelVersion").text = "4.0.0"
+        inheritance = ET.SubElement(child, "parent")
+        for name, value in (("groupId", "test"), ("artifactId", "contract-parent"), ("version", "1"), ("relativePath", "parent.xml")):
+            ET.SubElement(inheritance, name).text = value
+        ET.SubElement(child, "artifactId").text = "restaurant-contract-model"
+        properties = ET.SubElement(child, "properties")
+        for name in ("restaurant.contracts.version", "restaurant.release.plugin.version"):
+            properties.append(copy.deepcopy(restaurant.find("m:properties/m:" + name, NS)))
+        management = ET.SubElement(ET.SubElement(child, "dependencyManagement"), "dependencies")
+        for dependency in managed_contracts:
+            management.append(copy.deepcopy(dependency))
+        dependencies = ET.SubElement(child, "dependencies")
+        dependency = ET.SubElement(dependencies, "dependency")
+        ET.SubElement(dependency, "groupId").text = "org.pipelineframework"
+        ET.SubElement(dependency, "artifactId").text = "pipelineframework-runtime-core"
+        plugin = ET.SubElement(ET.SubElement(ET.SubElement(child, "build"), "plugins"), "plugin")
+        for name in ("groupId", "artifactId", "version", "dependencies"):
+            plugin.append(copy.deepcopy(release_plugin.find("m:" + name, NS)))
+
+        def resolve(arguments, expected):
+            ET.ElementTree(child).write(directory / "pom.xml", encoding="unicode")
+            subprocess.run([str(ROOT / "mvnw"), "-o", "-N", "-f", str(directory / "pom.xml"),
+                            "org.apache.maven.plugins:maven-help-plugin:3.5.2:effective-pom",
+                            f"-Doutput={directory / 'effective.xml'}", f"-Dmaven.repo.local={LOCAL_REPO}",
+                            f"-Dpipelineframework.bom.version={bom_version}", *arguments], cwd=ROOT, check=True)
+            effective = ET.parse(directory / "effective.xml").getroot()
+            selected = effective.findtext("m:dependencies/m:dependency/m:version", namespaces=NS)
+            assert selected == expected, f"application Contracts pin {selected} != {expected}"
+            actual_plugin = next(item for item in effective.findall("m:build/m:plugins/m:plugin", NS)
+                                 if item.findtext("m:artifactId", namespaces=NS) == "pipelineframework-release-maven-plugin")
+            versions = [item.findtext("m:version", namespaces=NS) for item in actual_plugin.findall("m:dependencies/m:dependency", NS)]
+            assert versions == [expected] * 9, f"producer reader graph did not inherit Contracts pin: {versions}"
+
+        resolve([f"-Dpipelineframework.contracts.version={contracts_version}"], contracts_version)
+        resolve([f"-Dpipelineframework.contracts.version={contracts_version}", f"-Drestaurant.contracts.version={explicit_version}"], explicit_version)
+        resolve([], root.findtext("m:properties/m:pipelineframework.contracts.version", namespaces=NS))
+        properties.find("m:restaurant.contracts.version", NS).text = "${pipelineframework.bom.version}"
+        resolve([f"-Dpipelineframework.contracts.version={contracts_version}"], bom_version)
+    print("Restaurant Contracts alignment: independent canonical/explicit/fallback pins reach application and plugin models; old BOM alias reproduced")
+
+
 def main():
     parent = ET.parse(ROOT / "pom.xml").getroot()
     contracts_versions = parent.findall("m:properties/m:pipelineframework.contracts.version", NS)
@@ -108,6 +179,7 @@ def main():
         project.remove(project.find("dependencyManagement"))
         assert resolve() == BASELINE, "control must reproduce the old baseline/candidate mismatch"
     print("BOM alignment: candidate replaces the baseline Block on the dependency path")
+    verify_restaurant_contract_alignment()
 
 
 if __name__ == "__main__":

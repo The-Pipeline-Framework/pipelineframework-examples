@@ -43,7 +43,7 @@
         <protobuf.descriptor.fileArg />
         <pipeline.parallelism>PARALLEL</pipeline.parallelism>
         <!-- Compatibility qualification pins each published artifact independently; ordinary builds use the selected runtime family. -->
-        <restaurant.contracts.version>${pipelineframework.bom.version}</restaurant.contracts.version>
+        <restaurant.contracts.version>${pipelineframework.contracts.version}</restaurant.contracts.version>
         <restaurant.worker.host.version>${pipelineframework.runtime.version}</restaurant.worker.host.version>
         <restaurant.worker.model.version>${pipelineframework.runtime.version}</restaurant.worker.model.version>
         <restaurant.worker.resolver.version>${pipelineframework.runtime.version}</restaurant.worker.resolver.version>
