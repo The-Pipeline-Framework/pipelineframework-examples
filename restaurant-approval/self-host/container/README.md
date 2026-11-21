@@ -50,6 +50,12 @@ This keeps LocalStack running while restarting runtime processes. The script sub
 
 This is a process-restart proof, not a mid-transition crash injection test. It proves the durable stores survive coordinator and worker restarts at an await boundary, which is the deterministic recovery surface in this example.
 
+Bootstrap reuses a retained `tpf_await_interaction` table only when its keys,
+attribute types and all required indexes match the current fixture schema. An
+incompatible table stops bootstrap with explicit local reset guidance. It does
+not migrate, delete or reset retained data. Only run the printed `down -v`
+command yourself if that local demo data may be discarded.
+
 ## Local Defaults
 
 | Variable | Default |
