@@ -3,8 +3,10 @@
 from base64 import b64decode
 from dataclasses import asdict
 import json
+import os
 from pathlib import Path
 import sys
+import time
 
 
 def serve(input_data):
@@ -24,6 +26,8 @@ def serve(input_data):
         def invoke(record, context):
             with open(input_data["calls"], "a", encoding="utf-8") as calls:
                 calls.write(json.dumps({"handler": name, "value": record.value, "context": asdict(context)}) + "\n")
+                calls.flush()
+                os.fsync(calls.fileno())
             if name == "apply" and record.value in (11, 12, 13):
                 if record.value == 13:
                     raise RuntimeError("must not be sent to coordinator")
@@ -31,7 +35,18 @@ def serve(input_data):
                 raise StructuredFailure({"code": "TRANSIENT" if retryable else "BUSINESS_REJECTION",
                                          "message": "must not be sent to coordinator", "retryable": retryable,
                                          "owner": "LOCAL_SHELL", "stepId": "B"})
-            return handler(record, context)
+            result = handler(record, context)
+            pause_witness = input_data.get("pauseAfterNormalize")
+            if name == "normalize" and pause_witness:
+                tmp_witness = pause_witness + ".tmp"
+                with open(tmp_witness, "w", encoding="utf-8") as marker:
+                    marker.write(json.dumps({"handler": name, "value": record.value, "context": asdict(context)}) + "\n")
+                    marker.flush()
+                    os.fsync(marker.fileno())
+                os.replace(tmp_witness, pause_witness)
+                while True:
+                    time.sleep(60)
+            return result
         return invoke
 
     counted = {name: counted_handler(name, handler) for name, handler in business.handlers.items()}

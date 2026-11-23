@@ -355,6 +355,9 @@ class RecoveryProxiesTest(unittest.TestCase):
                     with server_tls.wrap_socket(request, server_side=True) as secured:
                         super().process_request_thread(secured, client_address)
 
+            full_bodies_received: list[bytes] = []
+            body_lock = threading.Lock()
+
             class FakeWorker(BaseHTTPRequestHandler):
                 protocol_version = "HTTP/1.1"
 
@@ -363,7 +366,14 @@ class RecoveryProxiesTest(unittest.TestCase):
 
                 def do_POST(self):
                     length = int(self.headers.get("Content-Length", "0"))
-                    self.rfile.read(length)
+                    try:
+                        data = self.rfile.read(length)
+                    except OSError:
+                        return
+                    if len(data) < length:
+                        return
+                    with body_lock:
+                        full_bodies_received.append(data)
                     body = b'{"outcome":"COMPLETED"}'
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
@@ -417,6 +427,121 @@ class RecoveryProxiesTest(unittest.TestCase):
                 proxy.discard_execute_response()
                 t2.join(timeout=5)
                 self.assertIsInstance(discarded[0], RemoteDisconnected)
+
+                # Replace-response mode captures valid upstream completion and returns corrupted bytes on same channel.
+                proxy.arm_replace_execute_response(200, b'{"outcome":"COMPLETED"')
+                replaced: list[object] = []
+                send_exec(replaced)
+                self.assertTrue(proxy.execute_response_captured.wait(timeout=5))
+                self.assertEqual((200, b'{"outcome":"COMPLETED"}'),
+                                 (proxy.captured_execute_response[0], proxy.captured_execute_response[2]))
+                self.assertEqual([(200, b'{"outcome":"COMPLETED"')], replaced)
+                proxy.clear_execute_policy()
+
+                # Short-circuit 503 returns plain 503 without contacting upstream.
+                with body_lock:
+                    before_sc = len(full_bodies_received)
+                proxy.arm_short_circuit_execute(503, b"Service Unavailable")
+                sc_out: list[object] = []
+                send_exec(sc_out)
+                self.assertEqual([(503, b"Service Unavailable")], sc_out)
+                self.assertEqual(1, proxy.short_circuited_executes)
+                self.assertEqual([(503, b"Service Unavailable")], proxy.delivered_short_circuit_responses)
+                with body_lock:
+                    self.assertEqual(before_sc, len(full_bodies_received))
+                proxy.clear_execute_policy()
+
+                # Withhold-body opens verified TLS and sends headers only until released, then closes exchange.
+                proxy.arm_withhold_execute_body()
+                withheld_out: list[object] = []
+                t3 = threading.Thread(target=send_exec, args=(withheld_out,))
+                t3.start()
+                self.assertTrue(proxy.execute_body_withheld.wait(timeout=5))
+                self.assertTrue(t3.is_alive())
+                with body_lock:
+                    self.assertEqual(before_sc, len(full_bodies_received))
+                proxy.release_withheld_exchange()
+                t3.join(timeout=5)
+                self.assertFalse(t3.is_alive())
+                self.assertIsInstance(withheld_out[0], (RemoteDisconnected, ConnectionResetError))
+                with body_lock:
+                    self.assertEqual(before_sc, len(full_bodies_received))
+
+    def test_dynamo_barrier_duplicate_cdi_delivery_holds_ack_and_forwards_both_claims(self):
+        claim_calls = 0
+        lock = threading.Lock()
+
+        class FakeDynamo(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def do_POST(self):
+                nonlocal claim_calls
+                length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                target = self.headers.get("X-Amz-Target", "")
+                status = 200
+                resp = b"{}"
+                if target == "DynamoDB_20120810.UpdateItem":
+                    with lock:
+                        claim_calls += 1
+                        num = claim_calls
+                    if num > 1:
+                        status = 400
+                        resp = b'{"__type":"com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException"}'
+                self.send_response(status)
+                self.send_header("Content-Type", "application/x-amz-json-1.0")
+                self.send_header("Content-Length", str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+
+        upstream = _FastThreadingHTTPServer(("127.0.0.1", 0), FakeDynamo)
+        thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (upstream.shutdown(), upstream.server_close(), thread.join(timeout=5)))
+
+        with DynamoBarrierProxy(f"http://127.0.0.1:{upstream.server_port}") as proxy:
+            proxy_port = int(proxy.endpoint.rsplit(":", 1)[1])
+            proxy.arm_duplicate_cdi_delivery("t_exec", "t_key")
+
+            adm_out, c1_out, c2_out = [], [], []
+            claim_body = {
+                "TableName": "t_exec",
+                "UpdateExpression": "SET #status = :running, #leaseOwner = :leaseOwner",
+            }
+            t_adm = threading.Thread(target=lambda: adm_out.append(_dynamo_post(
+                proxy_port, "DynamoDB_20120810.TransactWriteItems", {
+                    "TransactItems": [
+                        {"Put": {"TableName": "t_exec", "Item": {"status": {"S": "QUEUED"}}}},
+                        {"Put": {"TableName": "t_key", "Item": {"execution_id": {"S": "exec-1"}}}},
+                    ],
+                }, timeout=20.0)))
+            t_adm.start()
+            self.assertTrue(proxy.admission_committed.wait(timeout=5))
+
+            t_c1 = threading.Thread(target=lambda: c1_out.append(_dynamo_post(
+                proxy_port, "DynamoDB_20120810.UpdateItem", claim_body, timeout=20.0)))
+            t_c1.start()
+            self.assertTrue(proxy.claim_held.wait(timeout=5))
+            with lock:
+                self.assertEqual(0, claim_calls)
+
+            proxy.release_admission_ack()
+            t_adm.join(timeout=5)
+            self.assertEqual(200, adm_out[0][0])
+
+            t_c2 = threading.Thread(target=lambda: c2_out.append(_dynamo_post(
+                proxy_port, "DynamoDB_20120810.UpdateItem", claim_body, timeout=20.0)))
+            t_c2.start()
+            self.assertTrue(proxy.second_claim_held.wait(timeout=5))
+            with lock:
+                self.assertEqual(0, claim_calls)
+
+            proxy.release_held_claims()
+            t_c1.join(timeout=5)
+            t_c2.join(timeout=5)
+            self.assertEqual(2, claim_calls)
+            self.assertEqual(sorted([(200, False), (400, True)]), sorted(proxy.claim_outcomes))
 
 
 if __name__ == "__main__":
