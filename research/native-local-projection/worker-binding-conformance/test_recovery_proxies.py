@@ -1,6 +1,6 @@
 """Focused unit tests for the packaged recovery DynamoDB barrier and worker observer proxies."""
 
-from http.client import HTTPConnection, HTTPSConnection
+from http.client import HTTPConnection, HTTPSConnection, RemoteDisconnected
 from http.server import BaseHTTPRequestHandler
 import json
 from pathlib import Path
@@ -19,23 +19,24 @@ from recovery_proxies import (
 from run_hosted_worker import certificates
 
 
-def _dynamo_post(endpoint_port: int, target: str, payload: dict, timeout: float = 5.0):
+def _dynamo_post(endpoint_port: int, target: str, payload: dict, timeout: float = 5.0, extra_headers=None):
     conn = HTTPConnection("127.0.0.1", endpoint_port, timeout=timeout)
     body = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Content-Type": "application/x-amz-json-1.0",
+        "X-Amz-Target": target,
+    } | (extra_headers or {})
     try:
-        conn.request("POST", "/", body=body, headers={
-            "Content-Type": "application/x-amz-json-1.0",
-            "X-Amz-Target": target,
-        })
+        conn.request("POST", "/", body=body, headers=headers)
         resp = conn.getresponse()
-        return resp.status, json.loads(resp.read() or b"{}")
+        return resp.status, dict(resp.getheaders()), json.loads(resp.read() or b"{}")
     finally:
         conn.close()
 
 
 class RecoveryProxiesTest(unittest.TestCase):
-    def test_dynamo_barrier_holds_admission_ack_and_fences_claims_before_upstream(self):
-        seen_upstream: list[tuple[str, dict]] = []
+    def test_dynamo_barrier_holds_admission_ack_fences_claims_and_closes_held_connections(self):
+        seen_upstream: list[tuple[str, dict, dict]] = []
         lock = threading.Lock()
 
         class FakeDynamo(BaseHTTPRequestHandler):
@@ -47,10 +48,12 @@ class RecoveryProxiesTest(unittest.TestCase):
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
                 target = self.headers.get("X-Amz-Target", "")
                 with lock:
-                    seen_upstream.append((target, body))
+                    seen_upstream.append((target, {k.lower(): v for k, v in self.headers.raw_items()}, body))
                 response = b"{}"
                 self.send_response(200)
                 self.send_header("Content-Type", "application/x-amz-json-1.0")
+                self.send_header("Connection", "X-Resp-Hop")
+                self.send_header("X-Resp-Hop", "strip-me")
                 self.send_header("Content-Length", str(len(response)))
                 self.end_headers()
                 self.wfile.write(response)
@@ -59,8 +62,9 @@ class RecoveryProxiesTest(unittest.TestCase):
         thread = threading.Thread(target=upstream.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(lambda: (upstream.shutdown(), upstream.server_close(), thread.join(timeout=5)))
+        upstream_url = f"http://127.0.0.1:{upstream.server_port}"
 
-        with DynamoBarrierProxy(f"http://127.0.0.1:{upstream.server_port}") as proxy:
+        with DynamoBarrierProxy(upstream_url) as proxy:
             proxy_port = int(proxy.endpoint.rsplit(":", 1)[1])
             proxy.arm_admission_before_intent("t_exec", "t_key")
 
@@ -90,15 +94,20 @@ class RecoveryProxiesTest(unittest.TestCase):
             t_adm = threading.Thread(target=send_admission)
             t_adm.start()
             self.assertTrue(proxy.admission_committed.wait(timeout=5))
-            # Upstream committed the admission transaction, but the caller is still blocked on the held ack.
             self.assertTrue(t_adm.is_alive())
             with lock:
                 self.assertEqual(1, len(seen_upstream))
                 self.assertEqual("DynamoDB_20120810.TransactWriteItems", seen_upstream[0][0])
 
-            # Ordinary scan still passes through while armed.
-            scan_status, _ = _dynamo_post(proxy_port, "DynamoDB_20120810.Scan", {"TableName": "t_exec"})
+            # Ordinary scan passes through while armed and strips Connection-nominated hop headers in both directions.
+            scan_status, scan_headers, _ = _dynamo_post(
+                proxy_port, "DynamoDB_20120810.Scan", {"TableName": "t_exec"},
+                extra_headers={"Connection": "X-Req-Hop", "X-Req-Hop": "strip-me"},
+            )
             self.assertEqual(200, scan_status)
+            self.assertNotIn("X-Resp-Hop", scan_headers)
+            with lock:
+                self.assertNotIn("x-req-hop", seen_upstream[-1][1])
 
             # Claim UpdateItem is fenced before reaching upstream.
             t_claim = threading.Thread(target=send_claim)
@@ -107,34 +116,38 @@ class RecoveryProxiesTest(unittest.TestCase):
             self.assertTrue(t_claim.is_alive())
             self.assertEqual(1, proxy.held_claims)
             with lock:
-                self.assertFalse(any(t == "DynamoDB_20120810.UpdateItem" for t, _ in seen_upstream))
+                self.assertFalse(any(t == "DynamoDB_20120810.UpdateItem" for t, _, _ in seen_upstream))
 
-            # Discarding held requests closes old connections without forwarding the claim and disarms the proxy.
-            proxy.discard_held_and_disarm()
+            # Fencing permanently closes both held connections (RemoteDisconnected, not timeout) and blocks new relays.
+            proxy.fence_and_discard()
             t_adm.join(timeout=5)
             t_claim.join(timeout=5)
             self.assertFalse(t_adm.is_alive())
             self.assertFalse(t_claim.is_alive())
-            self.assertIsInstance(admission_result[0], BaseException)
-            self.assertIsInstance(claim_result[0], BaseException)
+            self.assertIsInstance(admission_result[0], RemoteDisconnected)
+            self.assertIsInstance(claim_result[0], RemoteDisconnected)
+            with self.assertRaises(RemoteDisconnected):
+                _dynamo_post(proxy_port, "DynamoDB_20120810.UpdateItem", {"TableName": "t_exec"})
             with lock:
-                self.assertFalse(any(t == "DynamoDB_20120810.UpdateItem" for t, _ in seen_upstream))
+                self.assertFalse(any(t == "DynamoDB_20120810.UpdateItem" for t, _, _ in seen_upstream))
 
-            # After disarming, a restarted process's claim UpdateItem passes through normally.
-            claim_status, _ = _dynamo_post(proxy_port, "DynamoDB_20120810.UpdateItem", {
+        # A fresh proxy for a restarted process forwards claims normally.
+        with DynamoBarrierProxy(upstream_url) as restarted_proxy:
+            restarted_port = int(restarted_proxy.endpoint.rsplit(":", 1)[1])
+            claim_status, _, _ = _dynamo_post(restarted_port, "DynamoDB_20120810.UpdateItem", {
                 "TableName": "t_exec",
                 "UpdateExpression": "SET #status = :running",
             })
             self.assertEqual(200, claim_status)
             with lock:
-                self.assertTrue(any(t == "DynamoDB_20120810.UpdateItem" for t, _ in seen_upstream))
+                self.assertTrue(any(t == "DynamoDB_20120810.UpdateItem" for t, _, _ in seen_upstream))
 
     def test_worker_https_proxy_verifies_tls_preserves_headers_and_runs_pre_forward_check(self):
         with tempfile.TemporaryDirectory() as td:
             work = Path(td).resolve()
             certificates(work)
 
-            observed_worker: list[tuple[str, str, str, bytes]] = []
+            observed_worker: list[tuple[str, str, str, dict, bytes]] = []
             pre_forward_seen: list[bytes] = []
 
             server_tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -155,6 +168,8 @@ class RecoveryProxiesTest(unittest.TestCase):
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("X-TPF-Worker-Projection-Digest", "sha256:" + "a" * 64)
+                    self.send_header("Connection", "X-Worker-Hop")
+                    self.send_header("X-Worker-Hop", "drop")
                     body = b'{"ok":true}'
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
@@ -167,6 +182,7 @@ class RecoveryProxiesTest(unittest.TestCase):
                         self.command,
                         self.path,
                         self.headers.get("X-TPF-Worker-Signature", ""),
+                        {k.lower(): v for k, v in self.headers.raw_items()},
                         raw,
                     ))
                     body = b'{"outcome":"COMPLETED"}'
@@ -182,17 +198,16 @@ class RecoveryProxiesTest(unittest.TestCase):
             self.addCleanup(lambda: (upstream.shutdown(), upstream.server_close(), thread.join(timeout=5)))
 
             def before_forward(raw_body: bytes):
-                # Must execute before upstream worker receives the POST.
                 self.assertEqual([], observed_worker)
                 pre_forward_seen.append(raw_body)
 
             with WorkerHttpsObserverProxy(
-                upstream_port=upstream.server_port,
                 cafile=work / "ca.pem",
                 certfile=work / "worker.pem",
                 keyfile=work / "worker.key",
                 before_execute_forward=before_forward,
             ) as proxy:
+                proxy.set_upstream_port(upstream.server_port)
                 client_tls = ssl.create_default_context(cafile=str(work / "ca.pem"))
                 conn = HTTPSConnection("localhost", proxy.port, context=client_tls, timeout=5)
                 try:
@@ -200,6 +215,7 @@ class RecoveryProxiesTest(unittest.TestCase):
                     resp = conn.getresponse()
                     self.assertEqual(200, resp.status)
                     self.assertEqual(["sha256:" + "a" * 64], resp.headers.get_all("X-TPF-Worker-Projection-Digest"))
+                    self.assertIsNone(resp.headers.get("X-Worker-Hop"))
                     self.assertEqual(b'{"ok":true}', resp.read())
                 finally:
                     conn.close()
@@ -210,6 +226,8 @@ class RecoveryProxiesTest(unittest.TestCase):
                     conn.request("POST", EXECUTE_PATH, body=payload, headers={
                         "Content-Type": "application/json",
                         "X-TPF-Worker-Signature": "sig-exact",
+                        "Connection": "X-Client-Hop",
+                        "X-Client-Hop": "drop",
                     })
                     resp = conn.getresponse()
                     self.assertEqual(200, resp.status)
@@ -222,7 +240,10 @@ class RecoveryProxiesTest(unittest.TestCase):
                 self.assertEqual(1, proxy.pre_forward_checks)
                 self.assertEqual([], proxy.callback_errors)
                 self.assertEqual([payload], pre_forward_seen)
-                self.assertEqual([("POST", EXECUTE_PATH, "sig-exact", payload)], observed_worker)
+                self.assertEqual(1, len(observed_worker))
+                self.assertEqual(("POST", EXECUTE_PATH, "sig-exact", payload),
+                                 (observed_worker[0][0], observed_worker[0][1], observed_worker[0][2], observed_worker[0][4]))
+                self.assertNotIn("x-client-hop", observed_worker[0][3])
 
 
 if __name__ == "__main__":

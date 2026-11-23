@@ -2,8 +2,8 @@
 
 import argparse
 from contextlib import contextmanager
-from hashlib import file_digest
-from http.client import HTTPConnection
+from hashlib import file_digest, sha256
+from http.client import HTTPConnection, RemoteDisconnected
 import json
 import os
 from pathlib import Path
@@ -13,7 +13,7 @@ import socket
 import subprocess
 import tempfile
 import threading
-from time import monotonic, sleep
+from time import monotonic, sleep, time
 from urllib.parse import urlsplit
 
 from recovery_proxies import DynamoBarrierProxy, WorkerHttpsObserverProxy
@@ -151,7 +151,74 @@ def _consistent_execution(endpoint, table_name, tenant, execution_id):
     }).get("Item")
 
 
-def _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_execution_id=None):
+def _consistent_key_item(endpoint, table_name, tenant_execution_key):
+    return dynamo(endpoint, "get-item", {
+        "TableName": table_name,
+        "Key": {"tenant_execution_key": {"S": tenant_execution_key}},
+        "ConsistentRead": True,
+    }).get("Item")
+
+
+def _expected_intent_storage_key(tenant_id, execution_id, execution_version):
+    scope = json.dumps([tenant_id, execution_id, execution_version], separators=(",", ":")).encode("utf-8")
+    return "paired-dispatch:v1:sha256:" + sha256(scope).hexdigest()
+
+
+def _verify_durable_in_flight_intent(endpoint, prefix, raw_body):
+    cmd = json.loads(raw_body.decode("utf-8"))
+    exec_id = cmd["executionId"]
+    tenant = cmd["tenantId"]
+    row = _consistent_execution(endpoint, prefix + "_execution", tenant, exec_id)
+    require(row is not None, f"Missing execution row {exec_id} before worker execute POST")
+    require(row["status"]["S"] == "RUNNING", f"Expected RUNNING before worker POST, got {row.get('status')}")
+    require(int(row["version"]["N"]) == 1, f"Expected version 1 before worker POST, got {row.get('version')}")
+    require(int(row["attempt"]["N"]) == 0, f"Expected attempt 0 before worker POST, got {row.get('attempt')}")
+    now_ms = int(time() * 1000)
+    require("lease_owner" in row and int(row["lease_expires_epoch_ms"]["N"]) > now_ms,
+            f"Expected live lease (expires > {now_ms}) before worker POST: {row}")
+    require("paired_dispatch_intent" in row and "M" in row["paired_dispatch_intent"],
+            f"Missing active intent locator map before worker POST: {row}")
+    marker = row["paired_dispatch_intent"]["M"]
+    expected_fact_key = _expected_intent_storage_key(tenant, exec_id, cmd["executionVersion"])
+    require(marker["fact_key"]["S"] == expected_fact_key,
+            f"Intent locator fact_key {marker['fact_key']} did not match command key {expected_fact_key}")
+    require(marker["transition_key"]["S"] == cmd["transitionKey"],
+            f"Intent locator transition_key {marker['transition_key']} did not match {cmd['transitionKey']}")
+
+    fact_item = _consistent_key_item(endpoint, prefix + "_key", expected_fact_key)
+    require(fact_item is not None and "paired_dispatch_intent" in fact_item,
+            f"Missing immutable intent fact for {expected_fact_key}: {fact_item}")
+    evidence_raw = fact_item["paired_dispatch_intent"]["S"]
+    expected_digest = "sha256:" + sha256(evidence_raw.encode("utf-8")).hexdigest()
+    require(marker["digest"]["S"] == expected_digest,
+            f"Intent locator digest {marker['digest']} did not match fact digest {expected_digest}")
+    evidence = json.loads(evidence_raw)
+    expected_command_digest = "sha256:" + sha256(raw_body).hexdigest()
+    for field, expected in (
+        ("tenantId", tenant),
+        ("executionId", exec_id),
+        ("version", cmd["executionVersion"]),
+        ("leaseOwner", row["lease_owner"]["S"]),
+        ("transitionKey", cmd["transitionKey"]),
+        ("pipelineId", cmd["pipelineId"]),
+        ("contractVersion", cmd["contractVersion"]),
+        ("releaseVersion", cmd["releaseVersion"]),
+        ("attempt", cmd["attempt"]),
+        ("commandDigest", expected_command_digest),
+    ):
+        require(evidence.get(field) == expected,
+                f"Intent fact field {field}={evidence.get(field)!r} did not match command/lease {expected!r}")
+    return {
+        "executionId": exec_id,
+        "transitionKey": cmd["transitionKey"],
+        "factKey": expected_fact_key,
+        "evidenceRaw": evidence_raw,
+        "marker": marker,
+        "leaseExpiresEpochMs": int(row["lease_expires_epoch_ms"]["N"]),
+    }
+
+
+def _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_receipt=None):
     key_items = _consistent_scan(endpoint, prefix + "_key")
     intent_rows = [item for item in key_items
                    if item.get("tenant_execution_key", {}).get("S", "").startswith("paired-dispatch:v1:")]
@@ -165,9 +232,9 @@ def _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_execut
     execution_id = receipt_doc["executionId"]
     require(index_rows[0]["execution_id"]["S"] == execution_id,
             f"Execution-key index row disagreed with receipt: {index_rows[0]}")
-    if expected_execution_id is not None:
-        require(execution_id == expected_execution_id,
-                f"Receipt executionId changed from {expected_execution_id} to {execution_id}")
+    if expected_receipt is not None:
+        require(receipt_doc == expected_receipt,
+                f"Pre-kill receipt changed from {expected_receipt} to {receipt_doc}")
 
     exec_items = _consistent_scan(endpoint, prefix + "_execution")
     require(len(exec_items) == 1, f"Expected exactly 1 execution row, found {len(exec_items)}: {exec_items}")
@@ -179,12 +246,18 @@ def _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_execut
     for forbidden in ("lease_owner", "paired_dispatch_intent", "result_payload_json",
                       "result_payload_reference", "result_payload_digest"):
         require(forbidden not in row, f"Unexpected {forbidden} on unclaimed execution row: {row}")
-    return execution_id
+    return receipt_doc
+
+
+def _distinct_port(avoid_port):
+    while True:
+        candidate = local_port()
+        if candidate != avoid_port:
+            return candidate
 
 
 def verify_admission_before_intent_recovery(work, jar, classes, java, node, language, generated, bundle, endpoint):
     """Kill coordinator after durable admission commit and fenced claim, then prove ordinary sweep sends once."""
-    worker_port = local_port()
     prefix = f"native_recovery_{language}"
     tables(endpoint, prefix)
     calls = work / f"{language}-recovery-calls.jsonl"
@@ -192,31 +265,16 @@ def verify_admission_before_intent_recovery(work, jar, classes, java, node, lang
     observed_in_flight = {}
 
     def verify_intent_before_worker_forward(raw_body):
-        cmd = json.loads(raw_body.decode("utf-8"))
-        exec_id = cmd["executionId"]
-        row = _consistent_execution(endpoint, prefix + "_execution", cmd["tenantId"], exec_id)
-        require(row is not None, f"Missing execution row {exec_id} before worker execute POST")
-        require(row["status"]["S"] == "RUNNING", f"Expected RUNNING before worker POST, got {row.get('status')}")
-        require(int(row["version"]["N"]) == 1, f"Expected version 1 before worker POST, got {row.get('version')}")
-        require(int(row["attempt"]["N"]) == 0, f"Expected attempt 0 before worker POST, got {row.get('attempt')}")
-        require("lease_owner" in row and int(row["lease_expires_epoch_ms"]["N"]) > 0,
-                f"Expected live lease before worker POST: {row}")
-        require("paired_dispatch_intent" in row, f"Missing active intent locator before worker POST: {row}")
-        key_items = _consistent_scan(endpoint, prefix + "_key")
-        intent_facts = [item for item in key_items
-                        if item.get("tenant_execution_key", {}).get("S", "").startswith("paired-dispatch:v1:")]
-        require(len(intent_facts) == 1 and "paired_dispatch_intent" in intent_facts[0],
-                f"Expected 1 immutable paired dispatch intent fact before worker POST, got {intent_facts}")
-        observed_in_flight["executionId"] = exec_id
-        observed_in_flight["transitionKey"] = cmd["transitionKey"]
+        observed_in_flight.update(_verify_durable_in_flight_intent(endpoint, prefix, raw_body))
 
     with WorkerHttpsObserverProxy(
-        upstream_port=worker_port,
         cafile=work / "ca.pem",
         certfile=work / "worker.pem",
         keyfile=work / "worker.key",
         before_execute_forward=verify_intent_before_worker_forward,
     ) as worker_proxy:
+        worker_port = _distinct_port(worker_proxy.port)
+        worker_proxy.set_upstream_port(worker_port)
         launch = json.loads(command([
             "java", "-cp", os.pathsep.join((str(classes), java)), "NativeWorkerReleaseConformance",
             language, str(generated), str(bundle), "-", str(work / f"{language}-recovery-release"),
@@ -241,62 +299,67 @@ def verify_admission_before_intent_recovery(work, jar, classes, java, node, lang
                              "payloadEncoding": "tpf-polyglot-int32-json/1", "payload": '{"value":3}'},
         }
 
-        with host(language, work, node, launch), DynamoBarrierProxy(endpoint) as dynamo_proxy:
+        with host(language, work, node, launch):
             submit_outcome = []
 
             def submit_admit(port):
                 try:
                     submit_outcome.append(("response", http(port, admission, 200, intent, timeout=60)))
+                except (RemoteDisconnected, ConnectionResetError, BrokenPipeError) as error:
+                    submit_outcome.append(("disconnected", error))
                 except BaseException as error:
-                    submit_outcome.append(("error", repr(error)))
+                    submit_outcome.append(("error", error))
 
-            with coordinator(work, jar, launch_file, dynamo_proxy.endpoint, prefix, secret, "recovery-first") as (port, process):
-                http(port, admin + "/register", 200, {"releaseDescriptorPath": launch["descriptor"]})
-                registered = http(port, f"{admin}/{release}", 200)
-                dynamo_proxy.arm_admission_before_intent(prefix + "_execution", prefix + "_key")
+            # Use a dedicated proxy for the killed first coordinator and close it permanently on kill.
+            with DynamoBarrierProxy(endpoint) as first_dynamo_proxy:
+                with coordinator(work, jar, launch_file, first_dynamo_proxy.endpoint, prefix, secret, "recovery-first") as (port, process):
+                    http(port, admin + "/register", 200, {"releaseDescriptorPath": launch["descriptor"]})
+                    registered = http(port, f"{admin}/{release}", 200)
+                    first_dynamo_proxy.arm_admission_before_intent(prefix + "_execution", prefix + "_key")
 
-                client_thread = threading.Thread(target=submit_admit, args=(port,), daemon=True)
-                client_thread.start()
+                    client_thread = threading.Thread(target=submit_admit, args=(port,), daemon=True)
+                    client_thread.start()
 
-                require(dynamo_proxy.admission_committed.wait(timeout=20),
-                        "Admission transaction did not commit to DynamoDB while barrier was armed")
-                require(dynamo_proxy.claim_held.wait(timeout=15),
-                        "Ordinary sweep did not attempt a claim while barrier was armed")
+                    require(first_dynamo_proxy.admission_committed.wait(timeout=20),
+                            "Admission transaction did not commit to DynamoDB while barrier was armed")
+                    require(first_dynamo_proxy.claim_held.wait(timeout=15),
+                            "Ordinary sweep did not attempt a claim while barrier was armed")
 
-                execution_id = _assert_admitted_and_unclaimed(endpoint, prefix, client_key)
-                require(dynamo_proxy.unexpected_intent_writes == 0,
-                        f"Unexpected intent writes while barrier armed: {dynamo_proxy.unexpected_intent_writes}")
-                require(dynamo_proxy.held_claims >= 1, "Expected at least one fenced claim attempt")
-                require(worker_proxy.execute_posts == 0,
-                        f"Worker received {worker_proxy.execute_posts} execute POST(s) before coordinator kill")
-                require(worker_proxy.capability_gets >= 1, "Expected admission capability probe before commit")
-                require(observations(calls) == [], f"Worker ran business handlers before kill: {observations(calls)}")
+                    durable_receipt = _assert_admitted_and_unclaimed(endpoint, prefix, client_key)
+                    execution_id = durable_receipt["executionId"]
+                    require(first_dynamo_proxy.unexpected_intent_writes == 0,
+                            f"Unexpected intent writes while barrier armed: {first_dynamo_proxy.unexpected_intent_writes}")
+                    require(first_dynamo_proxy.held_claims >= 1, "Expected at least one fenced claim attempt")
+                    require(worker_proxy.execute_posts == 0,
+                            f"Worker received {worker_proxy.execute_posts} execute POST(s) before coordinator kill")
+                    require(worker_proxy.capability_gets >= 1, "Expected admission capability probe before commit")
+                    require(observations(calls) == [], f"Worker ran business handlers before kill: {observations(calls)}")
 
-                first_pid = process.pid
-                process.kill()
-                require(process.wait(timeout=8) == -9, "First coordinator did not exit on SIGKILL")
-                client_thread.join(timeout=10)
-                require(not client_thread.is_alive(), "Submitting client thread hung after coordinator SIGKILL")
-                require(submit_outcome and submit_outcome[0][0] == "error",
-                        f"Client unexpectedly received admission ack despite held barrier: {submit_outcome}")
-                dynamo_proxy.discard_held_and_disarm()
+                    first_pid = process.pid
+                    held_claims_before_kill = first_dynamo_proxy.held_claims
+                    process.kill()
+                    require(process.wait(timeout=8) == -9, "First coordinator did not exit on SIGKILL")
+                    client_thread.join(timeout=10)
+                    require(not client_thread.is_alive(), "Submitting client thread hung after coordinator SIGKILL")
+                    require(submit_outcome and submit_outcome[0][0] == "disconnected",
+                            f"Expected SIGKILL connection drop while admission ack was held, got: {submit_outcome}")
+                    first_dynamo_proxy.fence_and_discard()
 
-            # Confirm the durable QUEUED row survived the kill and discarded requests without any worker traffic.
-            _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_execution_id=execution_id)
+            # Confirm the durable QUEUED row survived the kill and permanently fenced first proxy without worker traffic.
+            _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_receipt=durable_receipt)
             require(worker_proxy.execute_posts == 0, "Discarded process still sent an execute POST")
             require(observations(calls) == [], "Discarded process reached business handlers")
             pre_restart_caps = worker_proxy.capability_gets
 
             # Restart with retained DynamoDB + retained file Release registry + fresh staging directory.
-            with coordinator(work, jar, launch_file, dynamo_proxy.endpoint, prefix, secret, "recovery-restart") as (port, process):
+            with coordinator(work, jar, launch_file, endpoint, prefix, secret, "recovery-restart") as (port, process):
                 second_pid = process.pid
                 require(second_pid != first_pid, "Expected a fresh coordinator PID after restart")
                 require(http(port, f"{admin}/{release}", 200) == registered,
                         "Retained Release changed across coordinator restart")
                 retained_receipt = http(port, f"{admission}/{client_key}", 200)
-                require(retained_receipt["executionId"] == execution_id
-                        and retained_receipt["releaseVersion"] == release,
-                        f"Retained receipt disagreed with committed execution: {retained_receipt}")
+                require(retained_receipt == durable_receipt,
+                        f"Retained receipt {retained_receipt} disagreed with pre-kill durable receipt {durable_receipt}")
 
                 # Do not re-submit or mutate state: wait for the ordinary sweep to claim and complete the original row.
                 execution_path = f"{control}/executions/{execution_id}"
@@ -314,7 +377,7 @@ def verify_admission_before_intent_recovery(work, jar, classes, java, node, lang
                     "payloadEncoding": "tpf-polyglot-int32-json/1",
                     "payload": '{"value":5}',
                 }, f"Unexpected recovered typed result: {result}")
-                require(http(port, admission, 200, intent) == retained_receipt,
+                require(http(port, admission, 200, intent) == durable_receipt,
                         "Same-key replay after recovery did not return the original receipt")
                 http(port, admission, 409, intent | {"inputPayload": intent["inputPayload"] | {"payload": '{"value":4}'}})
 
@@ -323,7 +386,8 @@ def verify_admission_before_intent_recovery(work, jar, classes, java, node, lang
                     f"Expected exactly 1 execute POST after restart, got {worker_proxy.execute_posts}")
             require(worker_proxy.pre_forward_checks == 1,
                     f"Expected 1 pre-forward durable intent check, got {worker_proxy.pre_forward_checks}")
-            require(observed_in_flight == {"executionId": execution_id, "transitionKey": f"{execution_id}:0:0"},
+            require(observed_in_flight.get("executionId") == execution_id
+                    and observed_in_flight.get("transitionKey") == f"{execution_id}:0:0",
                     f"Unexpected in-flight observation: {observed_in_flight}")
 
             terminal_row = _consistent_execution(endpoint, prefix + "_execution", tenant, execution_id)
@@ -342,6 +406,9 @@ def verify_admission_before_intent_recovery(work, jar, classes, java, node, lang
                              if item.get("tenant_execution_key", {}).get("S", "").startswith("paired-dispatch:v1:")]
             final_receipts = [item for item in final_keys if "admission_metadata" in item]
             require(len(final_intents) == 1, f"Expected 1 retained immutable intent fact, got {len(final_intents)}")
+            require(final_intents[0]["tenant_execution_key"]["S"] == observed_in_flight["factKey"]
+                    and final_intents[0].get("paired_dispatch_intent", {}).get("S") == observed_in_flight["evidenceRaw"],
+                    f"Terminal immutable intent fact changed: {final_intents[0]}")
             require(len(final_receipts) == 1, f"Expected 1 retained native receipt row, got {len(final_receipts)}")
             require(len(final_keys) == 3,
                     f"Expected 1 receipt + 1 execution-key + 1 immutable intent fact row, got {len(final_keys)}")
@@ -358,7 +425,7 @@ def verify_admission_before_intent_recovery(work, jar, classes, java, node, lang
                 "executionId": execution_id,
                 "firstPid": first_pid,
                 "secondPid": second_pid,
-                "heldClaimsBeforeKill": dynamo_proxy.held_claims,
+                "heldClaimsBeforeKill": held_claims_before_kill,
                 "capabilityGetsBeforeKill": pre_restart_caps,
                 "capabilityGetsTotal": worker_proxy.capability_gets,
                 "executePostsTotal": worker_proxy.execute_posts,

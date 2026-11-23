@@ -57,8 +57,19 @@ def _read_request_body(handler: BaseHTTPRequestHandler) -> bytes:
     return handler.rfile.read(int(length))
 
 
+def _connection_nominated(raw_items: list[tuple[str, str]]) -> set[str]:
+    nominated: set[str] = set()
+    for name, value in raw_items:
+        if name.lower() == "connection":
+            for token in value.split(","):
+                stripped = token.strip().lower()
+                if stripped:
+                    nominated.add(stripped)
+    return nominated
+
+
 def _forward_headers(raw_items: list[tuple[str, str]], extra_skip: frozenset[str]) -> list[tuple[str, str]]:
-    skip = _HOP_BY_HOP | extra_skip
+    skip = _HOP_BY_HOP | extra_skip | _connection_nominated(raw_items)
     seen: set[str] = set()
     forwarded: list[tuple[str, str]] = []
     for name, value in raw_items:
@@ -72,10 +83,11 @@ def _forward_headers(raw_items: list[tuple[str, str]], extra_skip: frozenset[str
 
 def _write_response(handler: BaseHTTPRequestHandler, status: int, headers: list[tuple[str, str]], body: bytes) -> None:
     handler.close_connection = True
+    skip = _HOP_BY_HOP | {"content-length"} | _connection_nominated(headers)
     try:
         handler.send_response(status)
         for name, value in headers:
-            if name.lower() in _HOP_BY_HOP or name.lower() == "content-length":
+            if name.lower() in skip:
                 continue
             handler.send_header(name, value)
         handler.send_header("Content-Length", str(len(body)))
@@ -125,7 +137,12 @@ def _is_intent_transaction(payload: dict, execution_table: str, key_table: str) 
 
 
 class DynamoBarrierProxy:
-    """Loopback HTTP proxy in front of DynamoDB Local for deterministic kill barriers."""
+    """Loopback HTTP proxy in front of DynamoDB Local for deterministic kill barriers.
+
+    Use a dedicated proxy instance for a coordinator process that will be killed:
+    calling fence_and_discard() permanently stops forwarding on this instance and
+    waits for every accepted relay handler to exit before returning.
+    """
 
     def __init__(self, upstream_endpoint: str) -> None:
         parsed = urlsplit(upstream_endpoint)
@@ -136,10 +153,11 @@ class DynamoBarrierProxy:
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
         self._armed = False
+        self._fenced_closed = False
         self._execution_table = ""
         self._key_table = ""
         self._discard_event = threading.Event()
-        self._active_held = 0
+        self._active_relays = 0
         self.admission_committed = threading.Event()
         self.claim_held = threading.Event()
         self.held_claims = 0
@@ -154,6 +172,8 @@ class DynamoBarrierProxy:
 
     def arm_admission_before_intent(self, execution_table: str, key_table: str) -> None:
         with self._lock:
+            if self._fenced_closed:
+                raise RuntimeError("Cannot re-arm a permanently fenced DynamoBarrierProxy")
             self._execution_table = execution_table
             self._key_table = key_table
             self._discard_event = threading.Event()
@@ -163,24 +183,14 @@ class DynamoBarrierProxy:
             self.unexpected_intent_writes = 0
             self._armed = True
 
-    def discard_held_and_disarm(self, timeout: float = 10.0) -> None:
+    def fence_and_discard(self, timeout: float = 10.0) -> None:
+        """Permanently stop forwarding on this proxy instance and close every accepted or held handler."""
         with self._condition:
+            self._fenced_closed = True
             self._armed = False
-            event = self._discard_event
-            event.set()
-            if not self._condition.wait_for(lambda: self._active_held == 0, timeout=timeout):
-                raise TimeoutError(f"Timed out waiting for {self._active_held} held DynamoDB request(s) to close")
-
-    def _enter_hold(self, event: threading.Event) -> None:
-        with self._condition:
-            self._active_held += 1
-        try:
-            event.wait()
-        finally:
-            with self._condition:
-                self._active_held -= 1
-                if self._active_held == 0:
-                    self._condition.notify_all()
+            self._discard_event.set()
+            if not self._condition.wait_for(lambda: self._active_relays == 0, timeout=timeout):
+                raise TimeoutError(f"Timed out waiting for {self._active_relays} DynamoDB proxy handler(s) to exit")
 
     def _forward(self, method: str, path: str, headers: list[tuple[str, str]], body: bytes) -> tuple[int, list[tuple[str, str]], bytes]:
         connection = HTTPConnection(self._upstream_host, self._upstream_port, timeout=30)
@@ -212,49 +222,76 @@ class DynamoBarrierProxy:
                 self._relay("GET")
 
             def _relay(self, method: str) -> None:
-                body = _read_request_body(self)
-                headers = _forward_headers(list(self.headers.raw_items()), frozenset({"host", "content-length"}))
-                target = self.headers.get("X-Amz-Target") or ""
-                with proxy._lock:
+                with proxy._condition:
+                    if proxy._fenced_closed:
+                        self.close_connection = True
+                        return
+                    proxy._active_relays += 1
                     armed = proxy._armed
                     exec_table = proxy._execution_table
                     key_table = proxy._key_table
                     discard_event = proxy._discard_event
-
-                if armed and method == "POST" and target in {
-                    "DynamoDB_20120810.TransactWriteItems",
-                    "DynamoDB_20120810.UpdateItem",
-                }:
+                try:
                     try:
-                        payload = json.loads(body.decode("utf-8"))
-                    except (UnicodeDecodeError, json.JSONDecodeError):
-                        payload = {}
-                    if target == "DynamoDB_20120810.UpdateItem" and payload.get("TableName") == exec_table:
-                        with proxy._lock:
-                            proxy.held_claims += 1
-                        proxy.claim_held.set()
+                        body = _read_request_body(self)
+                    except OSError:
                         self.close_connection = True
-                        proxy._enter_hold(discard_event)
                         return
-                    if target == "DynamoDB_20120810.TransactWriteItems":
-                        if _is_intent_transaction(payload, exec_table, key_table):
-                            with proxy._lock:
-                                proxy.unexpected_intent_writes += 1
-                            self.close_connection = True
-                            proxy._enter_hold(discard_event)
-                            return
-                        if _is_admission_transaction(payload, exec_table, key_table):
-                            status, resp_headers, resp_body = proxy._forward(method, self.path, headers, body)
-                            if status == 200:
-                                proxy.admission_committed.set()
-                                self.close_connection = True
-                                proxy._enter_hold(discard_event)
-                                return
-                            _write_response(self, status, resp_headers, resp_body)
-                            return
+                    headers = _forward_headers(list(self.headers.raw_items()), frozenset({"host", "content-length"}))
+                    target = self.headers.get("X-Amz-Target") or ""
 
-                status, resp_headers, resp_body = proxy._forward(method, self.path, headers, body)
-                _write_response(self, status, resp_headers, resp_body)
+                    with proxy._lock:
+                        if proxy._fenced_closed:
+                            self.close_connection = True
+                            return
+                        armed = armed or proxy._armed
+                        exec_table = proxy._execution_table or exec_table
+                        key_table = proxy._key_table or key_table
+                        discard_event = proxy._discard_event
+
+                    if armed and method == "POST" and target in {
+                        "DynamoDB_20120810.TransactWriteItems",
+                        "DynamoDB_20120810.UpdateItem",
+                    }:
+                        try:
+                            payload = json.loads(body.decode("utf-8"))
+                        except (UnicodeDecodeError, json.JSONDecodeError):
+                            payload = {}
+                        if target == "DynamoDB_20120810.UpdateItem" and payload.get("TableName") == exec_table:
+                            with proxy._lock:
+                                proxy.held_claims += 1
+                            proxy.claim_held.set()
+                            self.close_connection = True
+                            discard_event.wait()
+                            return
+                        if target == "DynamoDB_20120810.TransactWriteItems":
+                            if _is_intent_transaction(payload, exec_table, key_table):
+                                with proxy._lock:
+                                    proxy.unexpected_intent_writes += 1
+                                self.close_connection = True
+                                discard_event.wait()
+                                return
+                            if _is_admission_transaction(payload, exec_table, key_table):
+                                status, resp_headers, resp_body = proxy._forward(method, self.path, headers, body)
+                                if status == 200:
+                                    proxy.admission_committed.set()
+                                    self.close_connection = True
+                                    discard_event.wait()
+                                    return
+                                _write_response(self, status, resp_headers, resp_body)
+                                return
+
+                    with proxy._lock:
+                        if proxy._fenced_closed:
+                            self.close_connection = True
+                            return
+                    status, resp_headers, resp_body = proxy._forward(method, self.path, headers, body)
+                    _write_response(self, status, resp_headers, resp_body)
+                finally:
+                    with proxy._condition:
+                        proxy._active_relays -= 1
+                        if proxy._active_relays == 0:
+                            proxy._condition.notify_all()
 
         self._server = _FastThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
@@ -263,7 +300,7 @@ class DynamoBarrierProxy:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         try:
-            self.discard_held_and_disarm()
+            self.fence_and_discard()
         finally:
             if self._server is not None:
                 self._server.shutdown()
@@ -278,7 +315,7 @@ class WorkerHttpsObserverProxy:
     def __init__(
         self,
         *,
-        upstream_port: int,
+        upstream_port: int | None = None,
         cafile: Path,
         certfile: Path,
         keyfile: Path,
@@ -301,6 +338,10 @@ class WorkerHttpsObserverProxy:
     def port(self) -> int:
         assert self._server is not None
         return int(self._server.server_port)
+
+    def set_upstream_port(self, upstream_port: int) -> None:
+        with self._lock:
+            self._upstream_port = upstream_port
 
     def __enter__(self) -> WorkerHttpsObserverProxy:
         proxy = self
@@ -356,8 +397,14 @@ class WorkerHttpsObserverProxy:
                             _write_response(self, 500, [("Content-Type", "text/plain")], b"pre-forward assertion failed")
                             return
 
+                with proxy._lock:
+                    upstream_port = proxy._upstream_port
+                if upstream_port is None:
+                    _write_response(self, 502, [("Content-Type", "text/plain")], b"upstream worker port not configured")
+                    return
+
                 headers = _forward_headers(list(self.headers.raw_items()), frozenset({"host", "content-length"}))
-                connection = HTTPSConnection("localhost", proxy._upstream_port, context=upstream_tls, timeout=30)
+                connection = HTTPSConnection("localhost", upstream_port, context=upstream_tls, timeout=30)
                 try:
                     connection.putrequest(method, raw_path, skip_host=False, skip_accept_encoding=True)
                     for name, value in headers:
