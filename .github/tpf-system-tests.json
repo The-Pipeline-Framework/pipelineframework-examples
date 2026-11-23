@@ -9,6 +9,10 @@
       "command": ["bash", "research/native-local-projection/worker-binding-conformance/run_hosted_suite.sh"],
       "timeoutMinutes": 15
     },
+    "native-hosted-packaged-recovery": {
+      "command": ["bash", "research/native-local-projection/worker-binding-conformance/run_hosted_suite.sh", "--packaged-ingress"],
+      "timeoutMinutes": 25
+    },
     "restaurant-ha": {
       "command": ["bash", "scripts/run-system-test-suite.sh", "restaurant-ha"],
       "timeoutMinutes": 150

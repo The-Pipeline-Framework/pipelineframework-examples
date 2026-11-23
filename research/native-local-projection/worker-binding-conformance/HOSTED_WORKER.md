@@ -90,28 +90,26 @@ infrastructure, deployed worker failure recovery and HA remain separate
 acceptance work under
 [runtime #82](https://github.com/The-Pipeline-Framework/pipelineframework-runtime/issues/82).
 
-## Packaged coordinator ingress smoke
+## Packaged coordinator ingress and recovery suite
 
 Use the same immutable inputs and command above with `TPF_PACKAGED_INGRESS=1`
-and the AWS CLI on PATH. The runner creates test tables in its disposable DynamoDB
-Local container. It builds a Quarkus fast JAR with the generated Contract and a CDI
-producer for the prepared Release binding, then verifies the embedded runtime JAR
-against the candidate digest. The coordinator and both workers use loopback
-addresses. The client in this exercise uses Python's standard HTTP library.
+(or pass `--packaged-ingress` to `run_hosted_suite.sh`) and the AWS CLI on
+PATH. The runner creates test tables in its disposable DynamoDB Local
+container. It builds a Quarkus fast JAR with the generated Contract, a CDI
+producer for the prepared Release binding, and an external observation hook on
+the generic Java transition dispatch counter (`tpf.orchestrator.transition.dispatched.total`),
+then verifies the embedded runtime JAR against the candidate digest. Before
+running the native cases, an ordinary Java positive control confirms the
+external counter increments on generic Java dispatch; every native case asserts
+a zero increase across restarts and binding failures.
 
-For each worker, the runner first executes the direct-HTTPS ingress and
-terminal-retention smoke: it registers the Release over HTTP, checks that denied
-admission leaves no execution or receipt, and checks the typed result and the
-worker's execution and trace IDs. It kills the coordinator after settlement and
-starts a fresh process over the same files and DynamoDB instance. With the worker
-offline, it retrieves the original Release, receipt and result and exercises
-same-key replay and conflict through HTTP.
+For each worker language, the runner exercises:
 
-It then exercises recovery, worker/network fault, and duplicate-delivery cases
-over isolated tables and retained Release directories using a loopback DynamoDB
-barrier proxy and an HTTPS worker observer proxy that verifies upstream worker
-TLS and counts capability probes separately from execute posts:
-
+- **Direct-HTTPS ingress and terminal retention:** registers the Release over
+  HTTP, checks that denied admission leaves no execution or receipt, verifies
+  the typed result and worker execution/trace IDs, kills the coordinator after
+  settlement, and with the worker offline retrieves the original Release,
+  receipt, and result and exercises same-key replay and conflict.
 - **Coordinator death after admission before intent:** holds the committed
   admission transaction acknowledgement and fences execution claims before they
   reach DynamoDB, confirms `QUEUED` v0 with zero intent rows and zero worker
@@ -146,6 +144,47 @@ TLS and counts capability probes separately from execute posts:
   conditional failure, one execute POST, and known `SUCCEEDED`), then replays
   the captured signed execute POST and nonce directly against the running
   worker (HTTP `401`, zero additional handler calls, settled result unchanged).
+- **Client disconnect before receipt and coordinator death after settlement:**
+  drops the submitting client socket after durable receipt commit and
+  reconnects from a separate zero-JVM client process (`client.mjs` or
+  `client.py`) using the same key without creating a second dispatch;
+  separately holds the committed terminal `SUCCEEDED` acknowledgement until
+  `SIGKILL` and verifies the original Release, receipt, and typed result
+  survive restart with the worker offline.
+- **Wrong Release, missing/replaced binding, and stale worker isolation:**
+  verifies direct signed commands carrying a wrong Release fail before business
+  entry (`400`, zero rows/calls), and verifies that restarting over a retained
+  unclaimed execution with a missing binding, a replacement Release binding, or
+  a stale worker follows the pre-intent failure oracle (`WAIT_RETRY` v2/a1 to
+  `FAILED` v4/a1, zero dispatch intent, zero worker calls, zero Java fallback,
+  original receipt retained).
+- **Ingress validation, readiness rejections, portable failures, and distinct
+  keys:** verifies missing/wrong bearer tokens (`401`), unregistered scopes
+  (`404`), malformed/invalid inputs (`400`), oversized >16 KiB paired payloads
+  (`413`), and offline/wrong-artifact/wrong-projection/untrusted-CA/wrong-hostname
+  workers (`503`) leave zero durable rows and zero calls; verifies
+  `TRANSIENT_EXHAUSTED`, `BUSINESS_REJECTION`, and `UNCLASSIFIED` portable
+  failures (`FAILED` v2/a0, step index `1`, closed diagnostics, exact worker
+  call counts) plus independent executions for distinct keys under
+  `SERVER_KEY_ONLY` and `409` conflict on changed input or Release.
 
-Binding isolation, client disconnect, coordinator death after settlement, and
-ingress validation remain separate cases in the #82 recovery ledger.
+### Standalone zero-JVM client exercise
+
+Against any running packaged coordinator (no local JVM or inbound listener
+required on the client), submit, look up a receipt, or wait for terminal
+status and typed result with either Node.js or Python:
+
+```sh
+node research/native-local-projection/worker-binding-conformance/client.mjs \
+  submit http://127.0.0.1:<port> <token> <tenant> <pipeline> <clientKey> \
+  <contractVersion> <releaseVersion> <inputType> 3
+node research/native-local-projection/worker-binding-conformance/client.mjs \
+  lookup http://127.0.0.1:<port> <token> <tenant> <pipeline> <clientKey>
+node research/native-local-projection/worker-binding-conformance/client.mjs \
+  wait http://127.0.0.1:<port> <token> <tenant> <executionId> 30
+```
+
+Replace `node .../client.mjs` with `python3.14 -B .../client.py` for the
+equivalent Python client. Cloud deployment, external durable brokers, Await,
+streaming, Connectors, plugins, and HA remain separate work under
+[runtime #82](https://github.com/The-Pipeline-Framework/pipelineframework-runtime/issues/82).

@@ -13,6 +13,7 @@ from recovery_proxies import (
     CAPABILITIES_PATH,
     EXECUTE_PATH,
     DynamoBarrierProxy,
+    IngressHttpBarrierProxy,
     WorkerHttpsObserverProxy,
     _FastThreadingHTTPServer,
 )
@@ -542,6 +543,105 @@ class RecoveryProxiesTest(unittest.TestCase):
             t_c2.join(timeout=5)
             self.assertEqual(2, claim_calls)
             self.assertEqual(sorted([(200, False), (400, True)]), sorted(proxy.claim_outcomes))
+
+    def test_dynamo_barrier_death_after_settlement_commits_and_holds_ack(self):
+        commits: list[str] = []
+        lock = threading.Lock()
+
+        class FakeDynamo(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                with lock:
+                    commits.append(str(body.get("UpdateExpression") or ""))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-amz-json-1.0")
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+        upstream = _FastThreadingHTTPServer(("127.0.0.1", 0), FakeDynamo)
+        thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (upstream.shutdown(), upstream.server_close(), thread.join(timeout=5)))
+
+        with DynamoBarrierProxy(f"http://127.0.0.1:{upstream.server_port}") as proxy:
+            proxy_port = int(proxy.endpoint.rsplit(":", 1)[1])
+            proxy.arm_death_after_settlement("t_exec")
+            outcome: list[object] = []
+
+            def send_settlement():
+                try:
+                    outcome.append(_dynamo_post(proxy_port, "DynamoDB_20120810.UpdateItem", {
+                        "TableName": "t_exec",
+                        "UpdateExpression": "SET #status = :succeeded, #version = #version + :one",
+                    }, timeout=20.0))
+                except BaseException as error:
+                    outcome.append(error)
+
+            t = threading.Thread(target=send_settlement)
+            t.start()
+            self.assertTrue(proxy.settlement_committed.wait(timeout=5))
+            self.assertTrue(t.is_alive())
+            with lock:
+                self.assertEqual(1, len(commits))
+            proxy.fence_and_discard()
+            t.join(timeout=5)
+            self.assertFalse(t.is_alive())
+            self.assertIsInstance(outcome[0], (RemoteDisconnected, ConnectionResetError))
+
+    def test_ingress_http_barrier_drops_client_response_after_commit(self):
+        class FakeCoordinator(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, format, *args):
+                pass
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                body = b'{"executionId":"exec-42","clientKey":"ck-1"}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        upstream = _FastThreadingHTTPServer(("127.0.0.1", 0), FakeCoordinator)
+        thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (upstream.shutdown(), upstream.server_close(), thread.join(timeout=5)))
+
+        with IngressHttpBarrierProxy(upstream.server_port) as proxy:
+            proxy.arm_disconnect_before_receipt()
+            client_out: list[object] = []
+
+            def submit():
+                conn = HTTPConnection("127.0.0.1", proxy.port, timeout=10)
+                try:
+                    conn.request("POST", "/tpf/control-plane/tenants/t/pipelines/p/execution-admissions",
+                                 body=b'{"clientKey":"ck-1"}', headers={"Content-Type": "application/json"})
+                    resp = conn.getresponse()
+                    client_out.append((resp.status, resp.read()))
+                except BaseException as error:
+                    client_out.append(error)
+                finally:
+                    conn.close()
+
+            t = threading.Thread(target=submit)
+            t.start()
+            self.assertTrue(proxy.admission_response_captured.wait(timeout=5))
+            self.assertTrue(t.is_alive())
+            self.assertEqual(200, proxy.captured_admission_response[0])
+            self.assertEqual(b'{"executionId":"exec-42","clientKey":"ck-1"}', proxy.captured_admission_response[2])
+            proxy.drop_client_response()
+            t.join(timeout=5)
+            self.assertFalse(t.is_alive())
+            self.assertEqual(1, proxy.dropped_client_responses)
+            self.assertIsInstance(client_out[0], (RemoteDisconnected, ConnectionResetError))
 
 
 if __name__ == "__main__":

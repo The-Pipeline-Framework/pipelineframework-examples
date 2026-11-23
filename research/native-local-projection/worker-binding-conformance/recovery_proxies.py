@@ -215,6 +215,7 @@ class DynamoBarrierProxy:
         self._active_held_ack = 0
         self._active_held_claims = 0
         self.admission_committed = threading.Event()
+        self.settlement_committed = threading.Event()
         self.claim_held = threading.Event()
         self.second_claim_held = threading.Event()
         self.held_claims = 0
@@ -277,6 +278,16 @@ class DynamoBarrierProxy:
             self._claims_release_event.set()
             if not self._condition.wait_for(lambda: self._active_held_claims == 0, timeout=timeout):
                 raise TimeoutError(f"Timed out waiting for {self._active_held_claims} held claim(s) to finish")
+
+    def arm_death_after_settlement(self, execution_table: str) -> None:
+        """Forward terminal SUCCEEDED update to DynamoDB, then hold its ack until fenced/discarded."""
+        with self._lock:
+            if self._fenced_closed:
+                raise RuntimeError("Cannot re-arm a permanently fenced DynamoBarrierProxy")
+            self._execution_table = execution_table
+            self._discard_event = threading.Event()
+            self.settlement_committed.clear()
+            self._mode = "death_after_settlement"
 
     def arm_stale_settlement(self, execution_table: str) -> None:
         """Hold lease renewals before DynamoDB and observe late succeeded settlements failing their condition."""
@@ -463,6 +474,21 @@ class DynamoBarrierProxy:
                                     proxy._active_held_claims -= 1
                                     if proxy._active_held_claims == 0:
                                         proxy._condition.notify_all()
+
+                    if mode == "death_after_settlement" and method == "POST" and target == "DynamoDB_20120810.UpdateItem":
+                        try:
+                            payload = json.loads(body.decode("utf-8"))
+                        except (UnicodeDecodeError, json.JSONDecodeError):
+                            payload = {}
+                        if _is_succeeded_settlement_update(payload, exec_table):
+                            status, resp_headers, resp_body = proxy._forward(method, self.path, headers, body)
+                            if status == 200:
+                                proxy.settlement_committed.set()
+                                self.close_connection = True
+                                discard_event.wait()
+                                return
+                            _write_response(self, status, resp_headers, resp_body)
+                            return
 
                     if mode == "stale_settlement" and method == "POST" and target == "DynamoDB_20120810.UpdateItem":
                         try:
@@ -810,6 +836,144 @@ class WorkerHttpsObserverProxy:
     def __exit__(self, exc_type, exc, tb) -> None:
         try:
             self.clear_execute_policy()
+        finally:
+            if self._server is not None:
+                self._server.shutdown()
+                self._server.server_close()
+            if self._thread is not None:
+                self._thread.join(timeout=5)
+
+
+class IngressHttpBarrierProxy:
+    """Loopback HTTP proxy in front of the packaged coordinator for client-disconnect-before-receipt proofs."""
+
+    def __init__(self, upstream_port: int) -> None:
+        self._upstream_port = upstream_port
+        self._lock = threading.Lock()
+        self._active_gate: _ExecuteGate | None = None
+        self._last_gate: _ExecuteGate | None = None
+        self.dropped_client_responses = 0
+        self._server: _FastThreadingHTTPServer | None = None
+        self._thread: threading.Thread | None = None
+
+    @property
+    def port(self) -> int:
+        assert self._server is not None
+        return int(self._server.server_port)
+
+    @property
+    def admission_response_captured(self) -> threading.Event:
+        with self._lock:
+            gate = self._active_gate or self._last_gate
+        return gate.captured if gate is not None else threading.Event()
+
+    @property
+    def captured_admission_response(self) -> tuple[int, list[tuple[str, str]], bytes] | None:
+        with self._lock:
+            gate = self._active_gate or self._last_gate
+        if gate is None:
+            return None
+        with gate.lock:
+            return gate.captured_response
+
+    def arm_disconnect_before_receipt(self) -> None:
+        """Hold the coordinator's 200 admission response so the proxy can drop the client socket cleanly."""
+        with self._lock:
+            if self._active_gate is not None:
+                raise RuntimeError("Previous ingress gate is still armed; drop or release it first")
+            gate = _ExecuteGate("disconnect_before_receipt")
+            self._active_gate = gate
+            self._last_gate = gate
+
+    def _finish_gate(self, action: str, timeout: float = 10.0) -> None:
+        with self._lock:
+            gate = self._active_gate
+            self._active_gate = None
+        if gate is None:
+            return
+        with gate.condition:
+            gate.action = action
+            gate.gate.set()
+            if not gate.condition.wait_for(lambda: gate.active_relays == 0, timeout=timeout):
+                raise TimeoutError(f"Timed out waiting for {gate.active_relays} ingress relay(s) to {action}")
+
+    def drop_client_response(self, timeout: float = 10.0) -> None:
+        """Close the submitting client's HTTP socket without delivering any admission response bytes."""
+        self._finish_gate("discard", timeout=timeout)
+
+    def release_client_response(self, timeout: float = 10.0) -> None:
+        """Deliver the held admission response to the client."""
+        self._finish_gate("release", timeout=timeout)
+
+    def __enter__(self) -> IngressHttpBarrierProxy:
+        proxy = self
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+            def do_GET(self) -> None:
+                self._relay("GET")
+
+            def do_POST(self) -> None:
+                self._relay("POST")
+
+            def _relay(self, method: str) -> None:
+                body = _read_request_body(self)
+                raw_path = self.requestline.split()[1]
+                headers = _forward_headers(list(self.headers.raw_items()), frozenset({"host", "content-length"}))
+                is_admission_post = method == "POST" and raw_path.endswith("/execution-admissions")
+                with proxy._lock:
+                    gate = proxy._active_gate if is_admission_post else None
+                if gate is not None:
+                    with gate.condition:
+                        gate.active_relays += 1
+                try:
+                    connection = HTTPConnection("127.0.0.1", proxy._upstream_port, timeout=30)
+                    try:
+                        connection.putrequest(method, raw_path, skip_host=False, skip_accept_encoding=True)
+                        for name, value in headers:
+                            connection.putheader(name, value)
+                        if method == "POST" or body:
+                            connection.putheader("Content-Length", str(len(body)))
+                        connection.endheaders(body if body else None)
+                        response = connection.getresponse()
+                        resp_status = response.status
+                        resp_headers = list(response.getheaders())
+                        resp_body = response.read()
+                    finally:
+                        connection.close()
+
+                    if gate is not None and resp_status == 200:
+                        with gate.lock:
+                            gate.captured_response = (resp_status, resp_headers, resp_body)
+                        gate.captured.set()
+                        gate.gate.wait()
+                        with gate.lock:
+                            action = gate.action
+                        if action != "release":
+                            with proxy._lock:
+                                proxy.dropped_client_responses += 1
+                            self.close_connection = True
+                            return
+                    _write_response(self, resp_status, resp_headers, resp_body)
+                finally:
+                    if gate is not None:
+                        with gate.condition:
+                            gate.active_relays -= 1
+                            if gate.active_relays == 0:
+                                gate.condition.notify_all()
+
+        self._server = _FastThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        try:
+            self.drop_client_response()
         finally:
             if self._server is not None:
                 self._server.shutdown()

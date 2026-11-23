@@ -16,6 +16,12 @@ import threading
 from time import monotonic, sleep, time
 from urllib.parse import urlsplit
 
+from packaged_ingress_matrix import run_ingress_matrix_and_portable_outcomes
+from packaged_isolation_recovery import (
+    generic_dispatch_count,
+    run_isolation_and_disconnect_cases,
+    verify_java_fallback_positive_control,
+)
 from packaged_worker_faults import PackagedHarness, run_worker_faults_and_duplicates
 from recovery_proxies import DynamoBarrierProxy, WorkerHttpsObserverProxy
 from run_hosted_worker import (
@@ -85,16 +91,19 @@ def tables(endpoint, prefix):
 
 
 @contextmanager
-def coordinator(work, jar, launch, endpoint, prefix, secret, suffix, extra_config=None):
+def coordinator(work, jar, launch, endpoint, prefix, secret, suffix, extra_config=None, trust_ca=True):
     port = local_port()
     config = {
         "proof.launch": launch,
+        "proof.generic-dispatch-log": work / "native-generic-dispatches.log",
+        "pipeline.telemetry.enabled": "true",
+        "pipeline.telemetry.metrics.enabled": "true",
         "quarkus.http.host": "127.0.0.1",
         "quarkus.http.port": port,
         "quarkus.devservices.enabled": "false",
         "quarkus.grpc.server.use-separate-server": "false",
-        "javax.net.ssl.trustStore": work / "trust.p12",
-        "javax.net.ssl.trustStorePassword": "changeit",
+        **({"javax.net.ssl.trustStore": work / "trust.p12",
+            "javax.net.ssl.trustStorePassword": "changeit"} if trust_ca else {}),
         **{"pipeline.orchestrator." + name: value for name, value in {
             "mode": "QUEUE_ASYNC", "coordination-host": "NATIVE", "state-provider": "dynamo",
             "dispatcher-provider": "event", "process-loops-disabled": "false",
@@ -834,10 +843,28 @@ def run(work, manifest, endpoint, runtime_version, maven, maven_args):
     with embedded[0].open("rb") as artifact:
         require(file_digest(artifact, "sha256").hexdigest() == expected, "Packaged runtime differs from candidate")
 
+    harness = PackagedHarness(
+        http=http,
+        tables=tables,
+        coordinator=coordinator,
+        consistent_execution=_consistent_execution,
+        consistent_scan=_consistent_scan,
+        verify_durable_in_flight_intent=_verify_durable_in_flight_intent,
+        expected_completed_wire=_expected_completed_wire,
+        assert_unknown_terminal_durable=_assert_unknown_terminal_durable,
+        assert_zero_dlq_publications=_assert_zero_dlq_publications,
+        distinct_port=_distinct_port,
+    )
+    native_dispatch_log = work / "native-generic-dispatches.log"
+    java_control_ran = False
+
     for language in LANGUAGES:
         generated = work / language
         alternate = compile_alternate(work, compiler, language)
         bundle, _ = bundle_fixture(language, generated, alternate, packages[language], work, node)
+        if not java_control_ran:
+            verify_java_fallback_positive_control(harness, work, jar, classes, java, generated, bundle, endpoint)
+            java_control_ran = True
         worker_port = local_port()
         launch = json.loads(command(["java", "-cp", os.pathsep.join((str(classes), java)), "NativeWorkerReleaseConformance",
                                      language, str(generated), str(bundle), "-", str(work / f"{language}-release"),
@@ -903,21 +930,13 @@ def run(work, manifest, endpoint, runtime_version, maven, maven_args):
         verify_admission_before_intent_recovery(work, jar, classes, java, node, language, generated, bundle, endpoint)
         verify_post_intent_coordinator_death(work, jar, classes, java, node, language, generated, bundle, endpoint)
         verify_stale_settlement_authority(work, jar, classes, java, node, language, generated, bundle, endpoint)
-        run_worker_faults_and_duplicates(
-            PackagedHarness(
-                http=http,
-                tables=tables,
-                coordinator=coordinator,
-                consistent_execution=_consistent_execution,
-                consistent_scan=_consistent_scan,
-                verify_durable_in_flight_intent=_verify_durable_in_flight_intent,
-                expected_completed_wire=_expected_completed_wire,
-                assert_unknown_terminal_durable=_assert_unknown_terminal_durable,
-                assert_zero_dlq_publications=_assert_zero_dlq_publications,
-                distinct_port=_distinct_port,
-            ),
-            work, jar, classes, java, node, language, generated, bundle, endpoint,
-        )
+        run_worker_faults_and_duplicates(harness, work, jar, classes, java, node, language, generated, bundle, endpoint)
+        run_isolation_and_disconnect_cases(
+            harness, work, jar, classes, java, node, language, generated, bundle, endpoint, native_dispatch_log)
+        run_ingress_matrix_and_portable_outcomes(
+            harness, work, jar, classes, java, node, language, generated, alternate, bundle, endpoint, native_dispatch_log)
+        require(generic_dispatch_count(native_dispatch_log) == 0,
+                f"Unexpected Java fallback dispatch(es) during {language} native cases: {generic_dispatch_count(native_dispatch_log)}")
 
 
 if __name__ == "__main__":
