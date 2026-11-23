@@ -34,8 +34,13 @@ const root = baseUrl.replace(/\/$/, '');
 
 if (command === 'submit') {
   const [tenant, pipeline, clientKey, contractVersion, releaseVersion, inputType, rawValue] = rest;
-  const value = Number.parseInt(rawValue, 10);
-  if (!Number.isInteger(value)) throw new Error(`Expected integer value, got ${rawValue}`);
+  if (typeof rawValue !== 'string' || !/^-?\d+$/.test(rawValue)) {
+    throw new Error(`Expected decimal int32 value, got ${rawValue}`);
+  }
+  const value = Number(rawValue);
+  if (!Number.isSafeInteger(value) || value < -2147483648 || value > 2147483647) {
+    throw new Error(`Expected signed int32 value, got ${rawValue}`);
+  }
   const payload = {
     clientKey,
     contractVersion,

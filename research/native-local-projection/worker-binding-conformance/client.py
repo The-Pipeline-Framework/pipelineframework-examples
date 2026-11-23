@@ -9,6 +9,7 @@ Commands:
 
 from http.client import HTTPConnection
 import json
+import re
 import sys
 from time import monotonic, sleep
 from urllib.parse import urlsplit
@@ -46,6 +47,11 @@ def main(argv: list[str]) -> int:
 
     if cmd == "submit":
         tenant, pipeline, client_key, contract_ver, release_ver, input_type, raw_value = rest
+        if re.fullmatch(r"-?\d+", raw_value) is None:
+            raise ValueError(f"Expected decimal int32 value, got {raw_value!r}")
+        value = int(raw_value, 10)
+        if value < -2147483648 or value > 2147483647:
+            raise ValueError(f"Expected signed int32 value, got {raw_value!r}")
         payload = {
             "clientKey": client_key,
             "contractVersion": contract_ver,
@@ -55,7 +61,7 @@ def main(argv: list[str]) -> int:
             "inputPayload": {
                 "payloadTypeId": input_type,
                 "payloadEncoding": "tpf-polyglot-int32-json/1",
-                "payload": json.dumps({"value": int(raw_value)}, separators=(",", ":")),
+                "payload": json.dumps({"value": value}, separators=(",", ":")),
             },
         }
         receipt = request(
