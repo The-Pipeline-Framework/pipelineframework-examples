@@ -107,17 +107,29 @@ starts a fresh process over the same files and DynamoDB instance. With the worke
 offline, it retrieves the original Release, receipt and result and exercises
 same-key replay and conflict through HTTP.
 
-It then exercises coordinator death after durable admission before dispatch
-intent over isolated tables and a separate retained Release directory. A
-loopback DynamoDB proxy holds the committed admission transaction
-acknowledgement and fences execution claims before they reach DynamoDB while an
-HTTPS observer proxy verifies upstream worker TLS and counts capability probes
-separately from execute posts. After confirming the durable `QUEUED` v0 row with
-zero intent rows and zero worker calls, it sends `SIGKILL`, discards only the
-dead process's held traffic, disarms the barrier, and starts a fresh coordinator
-process. Without re-submitting or editing stored rows, the ordinary sweep claims
-the retained execution, persists dispatch intent before the single forwarded
-execute POST, settles the typed result, and preserves the original receipt and
-immutable intent fact. Post-intent interruption, worker/network faults, stale
-settlement, binding isolation and client disconnect remain separate cases in the
-#82 recovery ledger.
+It then exercises three fault-recovery cases over isolated tables and retained
+Release directories using a loopback DynamoDB barrier proxy and an HTTPS worker
+observer proxy that verifies upstream worker TLS and counts capability probes
+separately from execute posts:
+
+- **Coordinator death after admission before intent:** holds the committed
+  admission transaction acknowledgement and fences execution claims before they
+  reach DynamoDB, confirms `QUEUED` v0 with zero intent rows and zero worker
+  calls, sends `SIGKILL`, fences and discards the dead process's proxy, and
+  starts a fresh coordinator whose ordinary sweep claims the retained row,
+  persists dispatch intent before the single execute POST, and settles the
+  typed result.
+- **Coordinator death after intent:** verifies the committed `RUNNING` v1 lease
+  and immutable dispatch intent before forwarding the single execute POST,
+  captures and holds the valid worker completion after all three handler calls,
+  sends `SIGKILL`, discards the response channel, and restarts a fresh
+  coordinator whose ordinary lease-expiry sweep settles `REMOTE_OUTCOME_UNKNOWN`
+  (v2, attempt 0, intent preserved, no typed result, zero resend or DLQ).
+- **Stale settlement authority:** keeps the coordinator alive while holding
+  lease renewals and the valid worker completion until ordinary sweep commits
+  `REMOTE_OUTCOME_UNKNOWN`, releases the worker completion first to observe the
+  late settlement fail its DynamoDB conditional write, and only then releases
+  the renewal gate.
+
+Worker/network faults, duplicate delivery, binding isolation and client
+disconnect remain separate cases in the #82 recovery ledger.

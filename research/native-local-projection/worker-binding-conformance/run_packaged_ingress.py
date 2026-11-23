@@ -84,7 +84,7 @@ def tables(endpoint, prefix):
 
 
 @contextmanager
-def coordinator(work, jar, launch, endpoint, prefix, secret, suffix):
+def coordinator(work, jar, launch, endpoint, prefix, secret, suffix, extra_config=None):
     port = local_port()
     config = {
         "proof.launch": launch,
@@ -107,6 +107,7 @@ def coordinator(work, jar, launch, endpoint, prefix, secret, suffix):
             "dynamo.execution-table": prefix + "_execution", "dynamo.execution-key-table": prefix + "_key",
             "dynamo.execution-payload-table": prefix + "_payload", "dynamo.await-interaction-table": prefix + "_interaction",
         }.items()},
+        **(extra_config or {}),
     }
     args = ["java", *(f"-D{k}={v}" for k, v in config.items()), "-jar", str(jar)]
     log = work / f"{prefix}-{suffix}.log"
@@ -448,6 +449,346 @@ def verify_admission_before_intent_recovery(work, jar, classes, java, node, lang
             print(f"PACKAGED_ADMISSION_BEFORE_INTENT_RECOVERY_PASS:{language}", flush=True)
 
 
+def _expected_completed_wire(output_type):
+    return {
+        "outcome": "COMPLETED",
+        "outputPayloads": [{
+            "payloadTypeId": output_type,
+            "payloadEncoding": "tpf-polyglot-int32-json/1",
+            "payload": '{"value":5}',
+        }],
+        "terminalOutputPublished": False,
+        "terminalInputPassthrough": False,
+    }
+
+
+def _assert_unknown_terminal_durable(endpoint, prefix, tenant, execution_id, observed_in_flight):
+    row = _consistent_execution(endpoint, prefix + "_execution", tenant, execution_id)
+    require(row is not None and row["status"]["S"] == "REMOTE_OUTCOME_UNKNOWN",
+            f"Expected REMOTE_OUTCOME_UNKNOWN execution row, got {row}")
+    require(row.get("error_code", {}).get("S") == "REMOTE_OUTCOME_UNKNOWN",
+            f"Expected REMOTE_OUTCOME_UNKNOWN error_code, got {row}")
+    require(int(row["version"]["N"]) == 2, f"Expected unknown terminal version 2, got {row.get('version')}")
+    require(int(row["attempt"]["N"]) == 0, f"Expected unknown terminal attempt 0, got {row.get('attempt')}")
+    require("lease_owner" not in row, f"Lease owner was not cleared on unknown settlement: {row}")
+    require(int(row.get("lease_expires_epoch_ms", {}).get("N", "-1")) == 0,
+            f"Lease expiry was not cleared on unknown settlement: {row}")
+    for forbidden in ("result_payload_json", "result_payload_reference", "result_payload_digest"):
+        require(forbidden not in row, f"Unexpected {forbidden} on unknown terminal row: {row}")
+    require(row.get("last_transition_key", {}).get("S") == f"{execution_id}:0:0",
+            f"Unexpected unknown terminal transition key: {row}")
+    require(row.get("paired_dispatch_intent", {}).get("M") == observed_in_flight["marker"],
+            f"Active paired_dispatch_intent locator was not preserved on unknown terminal: {row}")
+
+    final_keys = _consistent_scan(endpoint, prefix + "_key")
+    final_intents = [item for item in final_keys
+                     if item.get("tenant_execution_key", {}).get("S", "").startswith("paired-dispatch:v1:")]
+    final_receipts = [item for item in final_keys if "admission_metadata" in item]
+    require(len(final_intents) == 1, f"Expected 1 retained immutable intent fact, got {len(final_intents)}")
+    require(final_intents[0]["tenant_execution_key"]["S"] == observed_in_flight["factKey"]
+            and final_intents[0].get("paired_dispatch_intent", {}).get("S") == observed_in_flight["evidenceRaw"],
+            f"Unknown terminal immutable intent fact changed: {final_intents[0]}")
+    require(len(final_receipts) == 1 and len(final_keys) == 3,
+            f"Expected 1 receipt + 1 execution-key + 1 immutable intent fact row, got {len(final_keys)}")
+    return row
+
+
+def _assert_zero_dlq_publications(work, prefix, *suffixes):
+    for suffix in suffixes:
+        log_path = work / f"{prefix}-{suffix}.log"
+        if log_path.exists():
+            text = log_path.read_text()
+            require("Execution moved to DLQ" not in text and "LoggingDeadLetterPublisher" not in text,
+                    f"Unexpected DLQ publication in {log_path.name}")
+
+
+def verify_post_intent_coordinator_death(work, jar, classes, java, node, language, generated, bundle, endpoint):
+    """Kill coordinator after durable intent and captured worker completion, then prove lease-expiry unknown fence."""
+    prefix = f"native_post_intent_{language}"
+    tables(endpoint, prefix)
+    calls = work / f"{language}-post-intent-calls.jsonl"
+    secret = secrets.token_urlsafe(32)
+    observed_in_flight = {}
+    lease_config = {
+        "pipeline.orchestrator.lease-ms": "4000",
+        "pipeline.orchestrator.worker.rest.request-timeout": "PT30S",
+    }
+
+    def verify_intent_before_worker_forward(raw_body):
+        observed_in_flight.update(_verify_durable_in_flight_intent(endpoint, prefix, raw_body))
+
+    with WorkerHttpsObserverProxy(
+        cafile=work / "ca.pem",
+        certfile=work / "worker.pem",
+        keyfile=work / "worker.key",
+        before_execute_forward=verify_intent_before_worker_forward,
+    ) as worker_proxy:
+        worker_port = _distinct_port(worker_proxy.port)
+        worker_proxy.set_upstream_port(worker_port)
+        launch = json.loads(command([
+            "java", "-cp", os.pathsep.join((str(classes), java)), "NativeWorkerReleaseConformance",
+            language, str(generated), str(bundle), "-", str(work / f"{language}-post-intent-release"),
+            f"https://localhost:{worker_proxy.port}",
+        ], work))
+        target = launch["target"]
+        target["sharedSecretRef"] = "env:TPF_NATIVE_WORKER_SECRET"
+        launch.update(port=worker_port, calls=str(calls), secret=secret,
+                      key=str(work / "worker.key"), cert=str(work / "worker.pem"))
+        launch_file = write_launch(work, f"{language}-post-intent",
+                                   {"target": target, "descriptor": launch["descriptor"]})
+        tenant = target["tenantId"]
+        pipeline = target["coordinatorContract"]["pipelineId"]
+        release = target["releaseVersion"]
+        admin = f"/tpf/admin/tenants/{tenant}/pipelines/{pipeline}/releases"
+        control = f"/tpf/control-plane/tenants/{tenant}"
+        admission = f"{control}/pipelines/{pipeline}/execution-admissions"
+        client_key = "post-intent-death"
+        intent = {
+            "clientKey": client_key, "contractVersion": launch["command"]["contractVersion"],
+            "releaseVersion": release, "inputShape": "UNI", "outputStreaming": False,
+            "inputPayload": {"payloadTypeId": launch["inputType"],
+                             "payloadEncoding": "tpf-polyglot-int32-json/1", "payload": '{"value":3}'},
+        }
+
+        with host(language, work, node, launch):
+            worker_proxy.arm_hold_execute_response()
+            with DynamoBarrierProxy(endpoint) as first_dynamo_proxy:
+                with coordinator(work, jar, launch_file, first_dynamo_proxy.endpoint, prefix, secret,
+                                 "post-intent-first", extra_config=lease_config) as (port, process):
+                    http(port, admin + "/register", 200, {"releaseDescriptorPath": launch["descriptor"]})
+                    registered = http(port, f"{admin}/{release}", 200)
+                    receipt = http(port, admission, 200, intent)
+                    execution_id = receipt["executionId"]
+
+                    require(worker_proxy.execute_response_captured.wait(timeout=20),
+                            "Worker completion was not captured at the observer proxy")
+                    require(worker_proxy.callback_errors == [],
+                            f"Pre-forward intent check failed: {worker_proxy.callback_errors}")
+                    captured_status, _, captured_body = worker_proxy.captured_execute_response
+                    require(captured_status == 200
+                            and json.loads(captured_body.decode("utf-8")) == _expected_completed_wire(launch["outputType"]),
+                            f"Unexpected captured worker completion: status={captured_status} body={captured_body!r}")
+
+                    context = {"executionId": execution_id, "traceId": execution_id}
+                    expected_calls = [{"handler": name, "value": value, "context": context}
+                                      for name, value in (("normalize", 3), ("apply", 4), ("finish", 8))]
+                    require(observations(calls) == expected_calls,
+                            f"Expected 3 completed worker calls before kill, got {observations(calls)}")
+                    require(worker_proxy.execute_posts == 1,
+                            f"Expected 1 execute POST before kill, got {worker_proxy.execute_posts}")
+
+                    running_row = _consistent_execution(endpoint, prefix + "_execution", tenant, execution_id)
+                    require(running_row is not None and running_row["status"]["S"] == "RUNNING"
+                            and int(running_row["version"]["N"]) == 1 and int(running_row["attempt"]["N"]) == 0
+                            and "lease_owner" in running_row
+                            and int(running_row["lease_expires_epoch_ms"]["N"]) > int(time() * 1000)
+                            and running_row.get("paired_dispatch_intent", {}).get("M") == observed_in_flight["marker"],
+                            f"Expected live RUNNING row with intent before SIGKILL, got {running_row}")
+
+                    first_pid = process.pid
+                    process.kill()
+                    require(process.wait(timeout=8) == -9, "First coordinator did not exit on SIGKILL")
+                    first_dynamo_proxy.fence_and_discard()
+                    worker_proxy.discard_execute_response()
+
+            # Restart with retained DynamoDB + retained file Release registry + fresh staging directory.
+            with coordinator(work, jar, launch_file, endpoint, prefix, secret,
+                             "post-intent-restart", extra_config=lease_config) as (port, process):
+                second_pid = process.pid
+                require(second_pid != first_pid, "Expected a fresh coordinator PID after restart")
+                require(http(port, f"{admin}/{release}", 200) == registered,
+                        "Retained Release changed across coordinator restart")
+                require(http(port, f"{admission}/{client_key}", 200) == receipt,
+                        "Retained receipt changed across post-intent restart")
+
+                execution_path = f"{control}/executions/{execution_id}"
+                deadline = monotonic() + 25
+                status = http(port, execution_path, 200)
+                while status["status"] == "RUNNING" and monotonic() < deadline:
+                    sleep(0.1)
+                    status = http(port, execution_path, 200)
+                require(status["status"] == "REMOTE_OUTCOME_UNKNOWN"
+                        and status["executionId"] == execution_id
+                        and status.get("errorCode") == "REMOTE_OUTCOME_UNKNOWN",
+                        f"Expected lease-expiry REMOTE_OUTCOME_UNKNOWN, got {status}")
+                result = http(port, execution_path + "/result", 200)
+                require(result["status"] == status and result.get("resultPayload") is None,
+                        f"Expected no typed payload for REMOTE_OUTCOME_UNKNOWN: {result}")
+
+                # Observe a subsequent ordinary sweep and same-key replay: terminal state and counts stay fixed.
+                sleep(2.2)
+                require(http(port, admission, 200, intent) == receipt,
+                        "Same-key replay changed original receipt after unknown settlement")
+                http(port, admission, 409, intent | {"inputPayload": intent["inputPayload"] | {"payload": '{"value":4}'}})
+                require(http(port, execution_path, 200) == status,
+                        "Subsequent ordinary sweep or replay changed REMOTE_OUTCOME_UNKNOWN status")
+                require(http(port, execution_path + "/result", 200) == result,
+                        "Subsequent ordinary sweep or replay changed REMOTE_OUTCOME_UNKNOWN result")
+
+            terminal_row = _assert_unknown_terminal_durable(endpoint, prefix, tenant, execution_id, observed_in_flight)
+            _assert_zero_dlq_publications(work, prefix, "post-intent-first", "post-intent-restart")
+            require(worker_proxy.execute_posts == 1,
+                    f"Post-intent recovery must not resend; saw {worker_proxy.execute_posts} execute POSTs")
+            require(observations(calls) == expected_calls,
+                    f"Post-intent recovery ran additional worker calls: {observations(calls)}")
+
+            print(json.dumps({
+                "case": "post-intent-coordinator-death",
+                "language": language,
+                "executionId": execution_id,
+                "firstPid": first_pid,
+                "secondPid": second_pid,
+                "capabilityGetsTotal": worker_proxy.capability_gets,
+                "executePostsTotal": worker_proxy.execute_posts,
+                "terminalStatus": terminal_row["status"]["S"],
+                "terminalVersion": int(terminal_row["version"]["N"]),
+                "terminalAttempt": int(terminal_row["attempt"]["N"]),
+                "businessCalls": len(expected_calls),
+            }), flush=True)
+            print(f"PACKAGED_POST_INTENT_DEATH_RECOVERY_PASS:{language}", flush=True)
+
+
+def verify_stale_settlement_authority(work, jar, classes, java, node, language, generated, bundle, endpoint):
+    """Keep coordinator alive, fence lease renewals until sweep marks unknown, then observe late settlement fail CAS."""
+    prefix = f"native_stale_settlement_{language}"
+    tables(endpoint, prefix)
+    calls = work / f"{language}-stale-settlement-calls.jsonl"
+    secret = secrets.token_urlsafe(32)
+    observed_in_flight = {}
+    lease_config = {
+        "pipeline.orchestrator.lease-ms": "4000",
+        "pipeline.orchestrator.worker.rest.request-timeout": "PT30S",
+    }
+
+    def verify_intent_before_worker_forward(raw_body):
+        observed_in_flight.update(_verify_durable_in_flight_intent(endpoint, prefix, raw_body))
+
+    with WorkerHttpsObserverProxy(
+        cafile=work / "ca.pem",
+        certfile=work / "worker.pem",
+        keyfile=work / "worker.key",
+        before_execute_forward=verify_intent_before_worker_forward,
+    ) as worker_proxy:
+        worker_port = _distinct_port(worker_proxy.port)
+        worker_proxy.set_upstream_port(worker_port)
+        launch = json.loads(command([
+            "java", "-cp", os.pathsep.join((str(classes), java)), "NativeWorkerReleaseConformance",
+            language, str(generated), str(bundle), "-", str(work / f"{language}-stale-settlement-release"),
+            f"https://localhost:{worker_proxy.port}",
+        ], work))
+        target = launch["target"]
+        target["sharedSecretRef"] = "env:TPF_NATIVE_WORKER_SECRET"
+        launch.update(port=worker_port, calls=str(calls), secret=secret,
+                      key=str(work / "worker.key"), cert=str(work / "worker.pem"))
+        launch_file = write_launch(work, f"{language}-stale-settlement",
+                                   {"target": target, "descriptor": launch["descriptor"]})
+        tenant = target["tenantId"]
+        pipeline = target["coordinatorContract"]["pipelineId"]
+        release = target["releaseVersion"]
+        admin = f"/tpf/admin/tenants/{tenant}/pipelines/{pipeline}/releases"
+        control = f"/tpf/control-plane/tenants/{tenant}"
+        admission = f"{control}/pipelines/{pipeline}/execution-admissions"
+        client_key = "stale-settlement"
+        intent = {
+            "clientKey": client_key, "contractVersion": launch["command"]["contractVersion"],
+            "releaseVersion": release, "inputShape": "UNI", "outputStreaming": False,
+            "inputPayload": {"payloadTypeId": launch["inputType"],
+                             "payloadEncoding": "tpf-polyglot-int32-json/1", "payload": '{"value":3}'},
+        }
+
+        with host(language, work, node, launch), DynamoBarrierProxy(endpoint) as dynamo_proxy:
+            with coordinator(work, jar, launch_file, dynamo_proxy.endpoint, prefix, secret,
+                             "stale-live", extra_config=lease_config) as (port, process):
+                coordinator_pid = process.pid
+                http(port, admin + "/register", 200, {"releaseDescriptorPath": launch["descriptor"]})
+                dynamo_proxy.arm_stale_settlement(prefix + "_execution")
+                worker_proxy.arm_hold_execute_response()
+
+                receipt = http(port, admission, 200, intent)
+                execution_id = receipt["executionId"]
+                context = {"executionId": execution_id, "traceId": execution_id}
+                expected_calls = [{"handler": name, "value": value, "context": context}
+                                  for name, value in (("normalize", 3), ("apply", 4), ("finish", 8))]
+
+                require(worker_proxy.execute_response_captured.wait(timeout=20),
+                        "Worker completion was not captured at the observer proxy")
+                require(worker_proxy.callback_errors == [],
+                        f"Pre-forward intent check failed: {worker_proxy.callback_errors}")
+                captured_status, _, captured_body = worker_proxy.captured_execute_response
+                require(captured_status == 200
+                        and json.loads(captured_body.decode("utf-8")) == _expected_completed_wire(launch["outputType"]),
+                        f"Unexpected captured worker completion: status={captured_status} body={captured_body!r}")
+                require(observations(calls) == expected_calls,
+                        f"Expected 3 completed worker calls, got {observations(calls)}")
+
+                require(dynamo_proxy.renewal_held.wait(timeout=10),
+                        "Lease renewal did not fire while worker completion was held")
+
+                # Wait for the ordinary sweep on the live coordinator to mark the expired lease unknown.
+                deadline = monotonic() + 20
+                row = _consistent_execution(endpoint, prefix + "_execution", tenant, execution_id)
+                while (row is None or row["status"]["S"] == "RUNNING") and monotonic() < deadline:
+                    sleep(0.1)
+                    row = _consistent_execution(endpoint, prefix + "_execution", tenant, execution_id)
+                require(row is not None and row["status"]["S"] == "REMOTE_OUTCOME_UNKNOWN"
+                        and int(row["version"]["N"]) == 2,
+                        f"Ordinary sweep did not commit REMOTE_OUTCOME_UNKNOWN on expired lease: {row}")
+                require(dynamo_proxy.late_settlement_observations == [],
+                        "Observed late settlement before worker completion was released")
+
+                # Release worker completion FIRST so late settlement hits DynamoDB and fails its condition
+                # before releasing the renewal gate (a renewal failure could otherwise cancel settlement).
+                worker_proxy.release_execute_response()
+                require(dynamo_proxy.late_settlement_rejected.wait(timeout=15),
+                        "Late succeeded settlement did not reach DynamoDB and fail ConditionalCheckFailedException")
+                held_renewals = dynamo_proxy.held_renewals
+                late_settlement_count = len(dynamo_proxy.late_settlement_observations)
+                dynamo_proxy.release_held_renewals()
+
+                execution_path = f"{control}/executions/{execution_id}"
+                status = http(port, execution_path, 200)
+                require(status["status"] == "REMOTE_OUTCOME_UNKNOWN"
+                        and status["executionId"] == execution_id
+                        and status.get("errorCode") == "REMOTE_OUTCOME_UNKNOWN",
+                        f"Unexpected HTTP status after rejected late settlement: {status}")
+                result = http(port, execution_path + "/result", 200)
+                require(result["status"] == status and result.get("resultPayload") is None,
+                        f"Expected no typed result after rejected late settlement: {result}")
+
+                # Observe a subsequent ordinary sweep and same-key replay on the same live coordinator.
+                sleep(2.2)
+                require(http(port, admission, 200, intent) == receipt,
+                        "Same-key replay changed original receipt after stale settlement")
+                http(port, admission, 409, intent | {"inputPayload": intent["inputPayload"] | {"payload": '{"value":4}'}})
+                require(http(port, execution_path, 200) == status,
+                        "Subsequent ordinary sweep changed stale-settlement terminal status")
+                require(http(port, execution_path + "/result", 200) == result,
+                        "Subsequent ordinary sweep changed stale-settlement terminal result")
+
+            terminal_row = _assert_unknown_terminal_durable(endpoint, prefix, tenant, execution_id, observed_in_flight)
+            _assert_zero_dlq_publications(work, prefix, "stale-live")
+            require(worker_proxy.execute_posts == 1,
+                    f"Stale settlement must not resend; saw {worker_proxy.execute_posts} execute POSTs")
+            require(observations(calls) == expected_calls,
+                    f"Stale settlement ran additional worker calls: {observations(calls)}")
+
+            print(json.dumps({
+                "case": "stale-settlement-authority",
+                "language": language,
+                "executionId": execution_id,
+                "coordinatorPid": coordinator_pid,
+                "heldRenewals": held_renewals,
+                "rejectedLateSettlements": late_settlement_count,
+                "capabilityGetsTotal": worker_proxy.capability_gets,
+                "executePostsTotal": worker_proxy.execute_posts,
+                "terminalStatus": terminal_row["status"]["S"],
+                "terminalVersion": int(terminal_row["version"]["N"]),
+                "terminalAttempt": int(terminal_row["attempt"]["N"]),
+                "businessCalls": len(expected_calls),
+            }), flush=True)
+            print(f"PACKAGED_STALE_SETTLEMENT_PASS:{language}", flush=True)
+
+
 def run(work, manifest, endpoint, runtime_version, maven, maven_args):
     address = urlsplit(endpoint)
     require(address.scheme == "http" and address.hostname in {"127.0.0.1", "localhost"}, "Expected local DynamoDB")
@@ -550,6 +891,8 @@ def run(work, manifest, endpoint, runtime_version, maven, maven_args):
                 for name, value in (("normalize", 3), ("apply", 4), ("finish", 8))], "Unexpected business calls or context")
         print(f"PACKAGED_HOSTED_INGRESS_PASS:{language}", flush=True)
         verify_admission_before_intent_recovery(work, jar, classes, java, node, language, generated, bundle, endpoint)
+        verify_post_intent_coordinator_death(work, jar, classes, java, node, language, generated, bundle, endpoint)
+        verify_stale_settlement_authority(work, jar, classes, java, node, language, generated, bundle, endpoint)
 
 
 if __name__ == "__main__":

@@ -245,6 +245,159 @@ class RecoveryProxiesTest(unittest.TestCase):
                                  (observed_worker[0][0], observed_worker[0][1], observed_worker[0][2], observed_worker[0][4]))
                 self.assertNotIn("x-client-hop", observed_worker[0][3])
 
+    def test_dynamo_barrier_stale_settlement_holds_renewals_and_captures_rejected_late_settlement(self):
+        seen_upstream: list[tuple[str, str]] = []
+        lock = threading.Lock()
+
+        class FakeDynamo(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                target = self.headers.get("X-Amz-Target", "")
+                expr = str(body.get("UpdateExpression") or "")
+                with lock:
+                    seen_upstream.append((target, expr))
+                if "#status = :succeeded" in expr:
+                    resp = b'{"__type":"com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException"}'
+                    status = 400
+                else:
+                    resp = b"{}"
+                    status = 200
+                self.send_response(status)
+                self.send_header("Content-Type", "application/x-amz-json-1.0")
+                self.send_header("Content-Length", str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+
+        upstream = _FastThreadingHTTPServer(("127.0.0.1", 0), FakeDynamo)
+        thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (upstream.shutdown(), upstream.server_close(), thread.join(timeout=5)))
+
+        with DynamoBarrierProxy(f"http://127.0.0.1:{upstream.server_port}") as proxy:
+            proxy_port = int(proxy.endpoint.rsplit(":", 1)[1])
+            proxy.arm_stale_settlement("t_exec")
+
+            renewal_outcome: list[object] = []
+
+            def send_renewal():
+                try:
+                    renewal_outcome.append(_dynamo_post(proxy_port, "DynamoDB_20120810.UpdateItem", {
+                        "TableName": "t_exec",
+                        "UpdateExpression": "SET #leaseExpires = :leaseExpires, #updated = :now",
+                    }))
+                except BaseException as error:
+                    renewal_outcome.append(error)
+
+            t_renew = threading.Thread(target=send_renewal)
+            t_renew.start()
+            self.assertTrue(proxy.renewal_held.wait(timeout=5))
+            self.assertEqual(1, proxy.held_renewals)
+            with lock:
+                self.assertEqual([], seen_upstream)
+
+            # Ordinary sweep unknown-settlement passes through while renewals remain held.
+            unknown_status, _, _ = _dynamo_post(proxy_port, "DynamoDB_20120810.UpdateItem", {
+                "TableName": "t_exec",
+                "UpdateExpression": "SET #status = :unknown, #version = #version + :one",
+            })
+            self.assertEqual(200, unknown_status)
+
+            # Late succeeded settlement reaches upstream and is captured as ConditionalCheckFailedException.
+            late_status, _, _ = _dynamo_post(proxy_port, "DynamoDB_20120810.UpdateItem", {
+                "TableName": "t_exec",
+                "UpdateExpression": "SET #status = :succeeded, #version = #version + :one",
+            })
+            self.assertEqual(400, late_status)
+            self.assertTrue(proxy.late_settlement_rejected.wait(timeout=5))
+            self.assertEqual(1, len(proxy.late_settlement_observations))
+            self.assertTrue(t_renew.is_alive())
+
+            # Releasing held renewals forwards them cleanly after late settlement was already observed.
+            proxy.release_held_renewals()
+            t_renew.join(timeout=5)
+            self.assertFalse(t_renew.is_alive())
+            self.assertEqual(200, renewal_outcome[0][0])
+
+    def test_worker_https_proxy_holds_and_releases_or_discards_execute_response(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td).resolve()
+            certificates(work)
+
+            server_tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            server_tls.load_cert_chain(str(work / "worker.pem"), str(work / "worker.key"))
+
+            class FakeWorkerServer(_FastThreadingHTTPServer):
+                def process_request_thread(self, request, client_address):
+                    with server_tls.wrap_socket(request, server_side=True) as secured:
+                        super().process_request_thread(secured, client_address)
+
+            class FakeWorker(BaseHTTPRequestHandler):
+                protocol_version = "HTTP/1.1"
+
+                def log_message(self, format, *args):
+                    pass
+
+                def do_POST(self):
+                    length = int(self.headers.get("Content-Length", "0"))
+                    self.rfile.read(length)
+                    body = b'{"outcome":"COMPLETED"}'
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+
+            upstream = FakeWorkerServer(("127.0.0.1", 0), FakeWorker)
+            thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(lambda: (upstream.shutdown(), upstream.server_close(), thread.join(timeout=5)))
+
+            with WorkerHttpsObserverProxy(
+                cafile=work / "ca.pem",
+                certfile=work / "worker.pem",
+                keyfile=work / "worker.key",
+            ) as proxy:
+                proxy.set_upstream_port(upstream.server_port)
+                client_tls = ssl.create_default_context(cafile=str(work / "ca.pem"))
+
+                def send_exec(out: list[object]):
+                    conn = HTTPSConnection("localhost", proxy.port, context=client_tls, timeout=5)
+                    try:
+                        conn.request("POST", EXECUTE_PATH, body=b'{"x":1}', headers={"Content-Type": "application/json"})
+                        resp = conn.getresponse()
+                        out.append((resp.status, resp.read()))
+                    except BaseException as error:
+                        out.append(error)
+                    finally:
+                        conn.close()
+
+                # Release path delivers the exact captured completion.
+                proxy.arm_hold_execute_response()
+                released: list[object] = []
+                t1 = threading.Thread(target=send_exec, args=(released,))
+                t1.start()
+                self.assertTrue(proxy.execute_response_captured.wait(timeout=5))
+                self.assertTrue(t1.is_alive())
+                self.assertEqual(200, proxy.captured_execute_response[0])
+                proxy.release_execute_response()
+                t1.join(timeout=5)
+                self.assertEqual([(200, b'{"outcome":"COMPLETED"}')], released)
+
+                # Discard path closes the held response channel without delivering bytes.
+                proxy.arm_hold_execute_response()
+                discarded: list[object] = []
+                t2 = threading.Thread(target=send_exec, args=(discarded,))
+                t2.start()
+                self.assertTrue(proxy.execute_response_captured.wait(timeout=5))
+                self.assertTrue(t2.is_alive())
+                proxy.discard_execute_response()
+                t2.join(timeout=5)
+                self.assertIsInstance(discarded[0], RemoteDisconnected)
+
 
 if __name__ == "__main__":
     unittest.main()

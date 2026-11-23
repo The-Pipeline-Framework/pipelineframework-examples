@@ -136,8 +136,22 @@ def _is_intent_transaction(payload: dict, execution_table: str, key_table: str) 
     return False
 
 
+def _is_lease_renewal_update(payload: dict, execution_table: str) -> bool:
+    if payload.get("TableName") != execution_table:
+        return False
+    expression = str(payload.get("UpdateExpression") or "")
+    return "#leaseExpires = :leaseExpires" in expression and "#status =" not in expression
+
+
+def _is_succeeded_settlement_update(payload: dict, execution_table: str) -> bool:
+    if payload.get("TableName") != execution_table:
+        return False
+    expression = str(payload.get("UpdateExpression") or "")
+    return "#status = :succeeded" in expression
+
+
 class DynamoBarrierProxy:
-    """Loopback HTTP proxy in front of DynamoDB Local for deterministic kill barriers.
+    """Loopback HTTP proxy in front of DynamoDB Local for deterministic kill and renewal barriers.
 
     Use a dedicated proxy instance for a coordinator process that will be killed:
     calling fence_and_discard() permanently stops forwarding on this instance and
@@ -152,16 +166,22 @@ class DynamoBarrierProxy:
         self._upstream_port = parsed.port
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
-        self._armed = False
+        self._mode = "passthrough"
         self._fenced_closed = False
         self._execution_table = ""
         self._key_table = ""
         self._discard_event = threading.Event()
+        self._renewal_release_event = threading.Event()
         self._active_relays = 0
+        self._active_held_renewals = 0
         self.admission_committed = threading.Event()
         self.claim_held = threading.Event()
         self.held_claims = 0
         self.unexpected_intent_writes = 0
+        self.renewal_held = threading.Event()
+        self.held_renewals = 0
+        self.late_settlement_rejected = threading.Event()
+        self.late_settlement_observations: list[tuple[int, bytes]] = []
         self._server: _FastThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -181,14 +201,37 @@ class DynamoBarrierProxy:
             self.claim_held.clear()
             self.held_claims = 0
             self.unexpected_intent_writes = 0
-            self._armed = True
+            self._mode = "admission_before_intent"
+
+    def arm_stale_settlement(self, execution_table: str) -> None:
+        """Hold lease renewals before DynamoDB and observe late succeeded settlements failing their condition."""
+        with self._lock:
+            if self._fenced_closed:
+                raise RuntimeError("Cannot re-arm a permanently fenced DynamoBarrierProxy")
+            self._execution_table = execution_table
+            self._renewal_release_event = threading.Event()
+            self.renewal_held.clear()
+            self.held_renewals = 0
+            self.late_settlement_rejected.clear()
+            self.late_settlement_observations = []
+            self._mode = "stale_settlement"
+
+    def release_held_renewals(self, timeout: float = 10.0) -> None:
+        """Release held lease renewals so they forward after late settlement has been observed."""
+        with self._condition:
+            if self._mode == "stale_settlement":
+                self._mode = "passthrough"
+            self._renewal_release_event.set()
+            if not self._condition.wait_for(lambda: self._active_held_renewals == 0, timeout=timeout):
+                raise TimeoutError(f"Timed out waiting for {self._active_held_renewals} held renewal(s) to finish")
 
     def fence_and_discard(self, timeout: float = 10.0) -> None:
         """Permanently reject new forwarding, drain registered relays, and close held ones."""
         with self._condition:
             self._fenced_closed = True
-            self._armed = False
+            self._mode = "passthrough"
             self._discard_event.set()
+            self._renewal_release_event.set()
             if not self._condition.wait_for(lambda: self._active_relays == 0, timeout=timeout):
                 raise TimeoutError(f"Timed out waiting for {self._active_relays} DynamoDB proxy handler(s) to exit")
 
@@ -227,10 +270,11 @@ class DynamoBarrierProxy:
                         self.close_connection = True
                         return
                     proxy._active_relays += 1
-                    armed = proxy._armed
+                    arrival_mode = proxy._mode
                     exec_table = proxy._execution_table
                     key_table = proxy._key_table
                     discard_event = proxy._discard_event
+                    renewal_release = proxy._renewal_release_event
                 try:
                     try:
                         body = _read_request_body(self)
@@ -244,12 +288,13 @@ class DynamoBarrierProxy:
                         if proxy._fenced_closed:
                             self.close_connection = True
                             return
-                        armed = armed or proxy._armed
+                        mode = proxy._mode if proxy._mode != "passthrough" else arrival_mode
                         exec_table = proxy._execution_table or exec_table
                         key_table = proxy._key_table or key_table
                         discard_event = proxy._discard_event
+                        renewal_release = proxy._renewal_release_event
 
-                    if armed and method == "POST" and target in {
+                    if mode == "admission_before_intent" and method == "POST" and target in {
                         "DynamoDB_20120810.TransactWriteItems",
                         "DynamoDB_20120810.UpdateItem",
                     }:
@@ -280,6 +325,39 @@ class DynamoBarrierProxy:
                                     return
                                 _write_response(self, status, resp_headers, resp_body)
                                 return
+
+                    if mode == "stale_settlement" and method == "POST" and target == "DynamoDB_20120810.UpdateItem":
+                        try:
+                            payload = json.loads(body.decode("utf-8"))
+                        except (UnicodeDecodeError, json.JSONDecodeError):
+                            payload = {}
+                        if _is_lease_renewal_update(payload, exec_table):
+                            with proxy._condition:
+                                proxy.held_renewals += 1
+                                proxy._active_held_renewals += 1
+                            proxy.renewal_held.set()
+                            try:
+                                renewal_release.wait()
+                                with proxy._lock:
+                                    if proxy._fenced_closed:
+                                        self.close_connection = True
+                                        return
+                                status, resp_headers, resp_body = proxy._forward(method, self.path, headers, body)
+                                _write_response(self, status, resp_headers, resp_body)
+                                return
+                            finally:
+                                with proxy._condition:
+                                    proxy._active_held_renewals -= 1
+                                    if proxy._active_held_renewals == 0:
+                                        proxy._condition.notify_all()
+                        if _is_succeeded_settlement_update(payload, exec_table):
+                            status, resp_headers, resp_body = proxy._forward(method, self.path, headers, body)
+                            with proxy._lock:
+                                proxy.late_settlement_observations.append((status, resp_body))
+                            if status == 400 and b"ConditionalCheckFailedException" in resp_body:
+                                proxy.late_settlement_rejected.set()
+                            _write_response(self, status, resp_headers, resp_body)
+                            return
 
                     with proxy._lock:
                         if proxy._fenced_closed:
@@ -327,6 +405,13 @@ class WorkerHttpsObserverProxy:
         self._keyfile = keyfile
         self._before_execute_forward = before_execute_forward
         self._lock = threading.Lock()
+        self._condition = threading.Condition(self._lock)
+        self._hold_response = False
+        self._response_action: str | None = None
+        self._response_gate = threading.Event()
+        self._active_held_responses = 0
+        self.execute_response_captured = threading.Event()
+        self.captured_execute_response: tuple[int, list[tuple[str, str]], bytes] | None = None
         self.capability_gets = 0
         self.execute_posts = 0
         self.pre_forward_checks = 0
@@ -342,6 +427,32 @@ class WorkerHttpsObserverProxy:
     def set_upstream_port(self, upstream_port: int) -> None:
         with self._lock:
             self._upstream_port = upstream_port
+
+    def arm_hold_execute_response(self) -> None:
+        with self._lock:
+            self._hold_response = True
+            self._response_action = None
+            self._response_gate = threading.Event()
+            self.execute_response_captured.clear()
+            self.captured_execute_response = None
+
+    def release_execute_response(self, timeout: float = 10.0) -> None:
+        """Deliver the held upstream worker response to the waiting coordinator."""
+        with self._condition:
+            self._hold_response = False
+            self._response_action = "release"
+            self._response_gate.set()
+            if not self._condition.wait_for(lambda: self._active_held_responses == 0, timeout=timeout):
+                raise TimeoutError(f"Timed out waiting for {self._active_held_responses} held execute response(s) to release")
+
+    def discard_execute_response(self, timeout: float = 10.0) -> None:
+        """Close the held execute response channel without delivering response bytes."""
+        with self._condition:
+            self._hold_response = False
+            self._response_action = "discard"
+            self._response_gate.set()
+            if not self._condition.wait_for(lambda: self._active_held_responses == 0, timeout=timeout):
+                raise TimeoutError(f"Timed out waiting for {self._active_held_responses} held execute response(s) to discard")
 
     def __enter__(self) -> WorkerHttpsObserverProxy:
         proxy = self
@@ -380,10 +491,11 @@ class WorkerHttpsObserverProxy:
             def _relay(self, method: str) -> None:
                 body = _read_request_body(self)
                 raw_path = self.requestline.split()[1]
+                is_execute = method == "POST" and raw_path == EXECUTE_PATH
                 if method == "GET" and raw_path == CAPABILITIES_PATH:
                     with proxy._lock:
                         proxy.capability_gets += 1
-                elif method == "POST" and raw_path == EXECUTE_PATH:
+                elif is_execute:
                     with proxy._lock:
                         proxy.execute_posts += 1
                     if proxy._before_execute_forward is not None:
@@ -399,6 +511,8 @@ class WorkerHttpsObserverProxy:
 
                 with proxy._lock:
                     upstream_port = proxy._upstream_port
+                    hold_response = is_execute and proxy._hold_response
+                    response_gate = proxy._response_gate
                 if upstream_port is None:
                     _write_response(self, 502, [("Content-Type", "text/plain")], b"upstream worker port not configured")
                     return
@@ -415,9 +529,31 @@ class WorkerHttpsObserverProxy:
                     response = connection.getresponse()
                     resp_headers = list(response.getheaders())
                     resp_body = response.read()
-                    _write_response(self, response.status, resp_headers, resp_body)
+                    resp_status = response.status
                 finally:
                     connection.close()
+
+                if hold_response:
+                    with proxy._condition:
+                        proxy.captured_execute_response = (resp_status, resp_headers, resp_body)
+                        proxy._active_held_responses += 1
+                    proxy.execute_response_captured.set()
+                    try:
+                        response_gate.wait()
+                        with proxy._lock:
+                            action = proxy._response_action
+                        if action != "release":
+                            self.close_connection = True
+                            return
+                        _write_response(self, resp_status, resp_headers, resp_body)
+                        return
+                    finally:
+                        with proxy._condition:
+                            proxy._active_held_responses -= 1
+                            if proxy._active_held_responses == 0:
+                                proxy._condition.notify_all()
+
+                _write_response(self, resp_status, resp_headers, resp_body)
 
         self._server = _TlsServer(("127.0.0.1", 0), Handler)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
@@ -425,8 +561,11 @@ class WorkerHttpsObserverProxy:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        if self._server is not None:
-            self._server.shutdown()
-            self._server.server_close()
-        if self._thread is not None:
-            self._thread.join(timeout=5)
+        try:
+            self.discard_execute_response()
+        finally:
+            if self._server is not None:
+                self._server.shutdown()
+                self._server.server_close()
+            if self._thread is not None:
+                self._thread.join(timeout=5)
