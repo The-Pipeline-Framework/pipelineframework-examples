@@ -184,7 +184,7 @@ class DynamoBarrierProxy:
             self._armed = True
 
     def fence_and_discard(self, timeout: float = 10.0) -> None:
-        """Permanently stop forwarding on this proxy instance and close every accepted or held handler."""
+        """Permanently reject new forwarding, drain registered relays, and close held ones."""
         with self._condition:
             self._fenced_closed = True
             self._armed = False

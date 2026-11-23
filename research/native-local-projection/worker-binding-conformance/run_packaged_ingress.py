@@ -173,6 +173,8 @@ def _verify_durable_in_flight_intent(endpoint, prefix, raw_body):
     require(row["status"]["S"] == "RUNNING", f"Expected RUNNING before worker POST, got {row.get('status')}")
     require(int(row["version"]["N"]) == 1, f"Expected version 1 before worker POST, got {row.get('version')}")
     require(int(row["attempt"]["N"]) == 0, f"Expected attempt 0 before worker POST, got {row.get('attempt')}")
+    require(cmd["attempt"] == int(row["attempt"]["N"]),
+            f"Command attempt {cmd['attempt']!r} did not match leased attempt {row['attempt']['N']}")
     now_ms = int(time() * 1000)
     require("lease_owner" in row and int(row["lease_expires_epoch_ms"]["N"]) > now_ms,
             f"Expected live lease (expires > {now_ms}) before worker POST: {row}")
@@ -218,7 +220,7 @@ def _verify_durable_in_flight_intent(endpoint, prefix, raw_body):
     }
 
 
-def _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_receipt=None):
+def _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_receipt=None, expected_index_key=None):
     key_items = _consistent_scan(endpoint, prefix + "_key")
     intent_rows = [item for item in key_items
                    if item.get("tenant_execution_key", {}).get("S", "").startswith("paired-dispatch:v1:")]
@@ -230,11 +232,15 @@ def _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_receip
     receipt_doc = json.loads(receipt_rows[0]["admission_metadata"]["S"])["receipt"]
     require(receipt_doc["clientKey"] == client_key, f"Unexpected receipt clientKey: {receipt_doc}")
     execution_id = receipt_doc["executionId"]
+    index_key = index_rows[0]["tenant_execution_key"]["S"]
     require(index_rows[0]["execution_id"]["S"] == execution_id,
             f"Execution-key index row disagreed with receipt: {index_rows[0]}")
     if expected_receipt is not None:
         require(receipt_doc == expected_receipt,
                 f"Pre-kill receipt changed from {expected_receipt} to {receipt_doc}")
+    if expected_index_key is not None:
+        require(index_key == expected_index_key,
+                f"Execution-key index key changed from {expected_index_key} to {index_key}")
 
     exec_items = _consistent_scan(endpoint, prefix + "_execution")
     require(len(exec_items) == 1, f"Expected exactly 1 execution row, found {len(exec_items)}: {exec_items}")
@@ -246,7 +252,7 @@ def _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_receip
     for forbidden in ("lease_owner", "paired_dispatch_intent", "result_payload_json",
                       "result_payload_reference", "result_payload_digest"):
         require(forbidden not in row, f"Unexpected {forbidden} on unclaimed execution row: {row}")
-    return receipt_doc
+    return receipt_doc, index_key
 
 
 def _distinct_port(avoid_port):
@@ -325,7 +331,7 @@ def verify_admission_before_intent_recovery(work, jar, classes, java, node, lang
                     require(first_dynamo_proxy.claim_held.wait(timeout=15),
                             "Ordinary sweep did not attempt a claim while barrier was armed")
 
-                    durable_receipt = _assert_admitted_and_unclaimed(endpoint, prefix, client_key)
+                    durable_receipt, index_key = _assert_admitted_and_unclaimed(endpoint, prefix, client_key)
                     execution_id = durable_receipt["executionId"]
                     require(first_dynamo_proxy.unexpected_intent_writes == 0,
                             f"Unexpected intent writes while barrier armed: {first_dynamo_proxy.unexpected_intent_writes}")
@@ -346,7 +352,8 @@ def verify_admission_before_intent_recovery(work, jar, classes, java, node, lang
                     first_dynamo_proxy.fence_and_discard()
 
             # Confirm the durable QUEUED row survived the kill and permanently fenced first proxy without worker traffic.
-            _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_receipt=durable_receipt)
+            _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_receipt=durable_receipt,
+                                           expected_index_key=index_key)
             require(worker_proxy.execute_posts == 0, "Discarded process still sent an execute POST")
             require(observations(calls) == [], "Discarded process reached business handlers")
             pre_restart_caps = worker_proxy.capability_gets
@@ -405,11 +412,16 @@ def verify_admission_before_intent_recovery(work, jar, classes, java, node, lang
             final_intents = [item for item in final_keys
                              if item.get("tenant_execution_key", {}).get("S", "").startswith("paired-dispatch:v1:")]
             final_receipts = [item for item in final_keys if "admission_metadata" in item]
+            final_indexes = [item for item in final_keys if "execution_id" in item and "admission_metadata" not in item]
             require(len(final_intents) == 1, f"Expected 1 retained immutable intent fact, got {len(final_intents)}")
             require(final_intents[0]["tenant_execution_key"]["S"] == observed_in_flight["factKey"]
                     and final_intents[0].get("paired_dispatch_intent", {}).get("S") == observed_in_flight["evidenceRaw"],
                     f"Terminal immutable intent fact changed: {final_intents[0]}")
             require(len(final_receipts) == 1, f"Expected 1 retained native receipt row, got {len(final_receipts)}")
+            require(len(final_indexes) == 1
+                    and final_indexes[0]["tenant_execution_key"]["S"] == index_key
+                    and final_indexes[0]["execution_id"]["S"] == execution_id,
+                    f"Terminal execution-key index row changed: {final_indexes}")
             require(len(final_keys) == 3,
                     f"Expected 1 receipt + 1 execution-key + 1 immutable intent fact row, got {len(final_keys)}")
 

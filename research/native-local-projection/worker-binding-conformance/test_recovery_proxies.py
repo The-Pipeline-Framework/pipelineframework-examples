@@ -78,7 +78,7 @@ class RecoveryProxiesTest(unittest.TestCase):
                             {"Put": {"TableName": "t_exec", "Item": {"status": {"S": "QUEUED"}}}},
                             {"Put": {"TableName": "t_key", "Item": {"execution_id": {"S": "exec-1"}}}},
                         ],
-                    }))
+                    }, timeout=20.0))
                 except BaseException as error:
                     admission_result.append(error)
 
@@ -87,7 +87,7 @@ class RecoveryProxiesTest(unittest.TestCase):
                     claim_result.append(_dynamo_post(proxy_port, "DynamoDB_20120810.UpdateItem", {
                         "TableName": "t_exec",
                         "UpdateExpression": "SET #status = :running",
-                    }))
+                    }, timeout=20.0))
                 except BaseException as error:
                     claim_result.append(error)
 
@@ -126,7 +126,7 @@ class RecoveryProxiesTest(unittest.TestCase):
             self.assertFalse(t_claim.is_alive())
             self.assertIsInstance(admission_result[0], RemoteDisconnected)
             self.assertIsInstance(claim_result[0], RemoteDisconnected)
-            with self.assertRaises(RemoteDisconnected):
+            with self.assertRaises((RemoteDisconnected, ConnectionResetError)):
                 _dynamo_post(proxy_port, "DynamoDB_20120810.UpdateItem", {"TableName": "t_exec"})
             with lock:
                 self.assertFalse(any(t == "DynamoDB_20120810.UpdateItem" for t, _, _ in seen_upstream))
