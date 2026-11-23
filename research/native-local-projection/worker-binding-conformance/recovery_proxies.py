@@ -150,6 +150,32 @@ def _is_succeeded_settlement_update(payload: dict, execution_table: str) -> bool
     return "#status = :succeeded" in expression
 
 
+def _is_conditional_check_failed(status: int, body: bytes) -> bool:
+    if status != 400:
+        return False
+    try:
+        envelope = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(envelope, dict):
+        return False
+    error_type = envelope.get("__type")
+    return isinstance(error_type, str) and error_type.rsplit("#", 1)[-1] == "ConditionalCheckFailedException"
+
+
+class _ResponseGate:
+    """Gate-scoped state for one execute-response hold window, isolating stale relays from rearmed gates."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.condition = threading.Condition(self.lock)
+        self.gate = threading.Event()
+        self.captured = threading.Event()
+        self.action: str | None = None
+        self.captured_response: tuple[int, list[tuple[str, str]], bytes] | None = None
+        self.active_relays = 0
+
+
 class DynamoBarrierProxy:
     """Loopback HTTP proxy in front of DynamoDB Local for deterministic kill and renewal barriers.
 
@@ -181,6 +207,7 @@ class DynamoBarrierProxy:
         self.renewal_held = threading.Event()
         self.held_renewals = 0
         self.late_settlement_rejected = threading.Event()
+        self.confirmed_late_settlement_rejections = 0
         self.late_settlement_observations: list[tuple[int, bytes]] = []
         self._server: _FastThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -213,6 +240,7 @@ class DynamoBarrierProxy:
             self.renewal_held.clear()
             self.held_renewals = 0
             self.late_settlement_rejected.clear()
+            self.confirmed_late_settlement_rejections = 0
             self.late_settlement_observations = []
             self._mode = "stale_settlement"
 
@@ -352,9 +380,12 @@ class DynamoBarrierProxy:
                                         proxy._condition.notify_all()
                         if _is_succeeded_settlement_update(payload, exec_table):
                             status, resp_headers, resp_body = proxy._forward(method, self.path, headers, body)
+                            is_conditional_failure = _is_conditional_check_failed(status, resp_body)
                             with proxy._lock:
                                 proxy.late_settlement_observations.append((status, resp_body))
-                            if status == 400 and b"ConditionalCheckFailedException" in resp_body:
+                                if is_conditional_failure:
+                                    proxy.confirmed_late_settlement_rejections += 1
+                            if is_conditional_failure:
                                 proxy.late_settlement_rejected.set()
                             _write_response(self, status, resp_headers, resp_body)
                             return
@@ -405,13 +436,8 @@ class WorkerHttpsObserverProxy:
         self._keyfile = keyfile
         self._before_execute_forward = before_execute_forward
         self._lock = threading.Lock()
-        self._condition = threading.Condition(self._lock)
-        self._hold_response = False
-        self._response_action: str | None = None
-        self._response_gate = threading.Event()
-        self._active_held_responses = 0
-        self.execute_response_captured = threading.Event()
-        self.captured_execute_response: tuple[int, list[tuple[str, str]], bytes] | None = None
+        self._active_gate: _ResponseGate | None = None
+        self._last_gate: _ResponseGate | None = None
         self.capability_gets = 0
         self.execute_posts = 0
         self.pre_forward_checks = 0
@@ -424,35 +450,54 @@ class WorkerHttpsObserverProxy:
         assert self._server is not None
         return int(self._server.server_port)
 
+    @property
+    def execute_response_captured(self) -> threading.Event:
+        with self._lock:
+            gate = self._active_gate or self._last_gate
+        if gate is None:
+            return threading.Event()
+        return gate.captured
+
+    @property
+    def captured_execute_response(self) -> tuple[int, list[tuple[str, str]], bytes] | None:
+        with self._lock:
+            gate = self._active_gate or self._last_gate
+        if gate is None:
+            return None
+        with gate.lock:
+            return gate.captured_response
+
     def set_upstream_port(self, upstream_port: int) -> None:
         with self._lock:
             self._upstream_port = upstream_port
 
     def arm_hold_execute_response(self) -> None:
         with self._lock:
-            self._hold_response = True
-            self._response_action = None
-            self._response_gate = threading.Event()
-            self.execute_response_captured.clear()
-            self.captured_execute_response = None
+            if self._active_gate is not None:
+                raise RuntimeError("Previous execute-response gate is still armed; release or discard it first")
+            gate = _ResponseGate()
+            self._active_gate = gate
+            self._last_gate = gate
+
+    def _finish_gate(self, action: str, timeout: float = 10.0) -> None:
+        with self._lock:
+            gate = self._active_gate
+            self._active_gate = None
+        if gate is None:
+            return
+        with gate.condition:
+            gate.action = action
+            gate.gate.set()
+            if not gate.condition.wait_for(lambda: gate.active_relays == 0, timeout=timeout):
+                raise TimeoutError(f"Timed out waiting for {gate.active_relays} held execute relay(s) to {action}")
 
     def release_execute_response(self, timeout: float = 10.0) -> None:
         """Deliver the held upstream worker response to the waiting coordinator."""
-        with self._condition:
-            self._hold_response = False
-            self._response_action = "release"
-            self._response_gate.set()
-            if not self._condition.wait_for(lambda: self._active_held_responses == 0, timeout=timeout):
-                raise TimeoutError(f"Timed out waiting for {self._active_held_responses} held execute response(s) to release")
+        self._finish_gate("release", timeout=timeout)
 
     def discard_execute_response(self, timeout: float = 10.0) -> None:
         """Close the held execute response channel without delivering response bytes."""
-        with self._condition:
-            self._hold_response = False
-            self._response_action = "discard"
-            self._response_gate.set()
-            if not self._condition.wait_for(lambda: self._active_held_responses == 0, timeout=timeout):
-                raise TimeoutError(f"Timed out waiting for {self._active_held_responses} held execute response(s) to discard")
+        self._finish_gate("discard", timeout=timeout)
 
     def __enter__(self) -> WorkerHttpsObserverProxy:
         proxy = self
@@ -511,49 +556,53 @@ class WorkerHttpsObserverProxy:
 
                 with proxy._lock:
                     upstream_port = proxy._upstream_port
-                    hold_response = is_execute and proxy._hold_response
-                    response_gate = proxy._response_gate
+                    gate = proxy._active_gate if is_execute else None
                 if upstream_port is None:
                     _write_response(self, 502, [("Content-Type", "text/plain")], b"upstream worker port not configured")
                     return
 
-                headers = _forward_headers(list(self.headers.raw_items()), frozenset({"host", "content-length"}))
-                connection = HTTPSConnection("localhost", upstream_port, context=upstream_tls, timeout=30)
-                try:
-                    connection.putrequest(method, raw_path, skip_host=False, skip_accept_encoding=True)
-                    for name, value in headers:
-                        connection.putheader(name, value)
-                    if method == "POST" or body:
-                        connection.putheader("Content-Length", str(len(body)))
-                    connection.endheaders(body if body else None)
-                    response = connection.getresponse()
-                    resp_headers = list(response.getheaders())
-                    resp_body = response.read()
-                    resp_status = response.status
-                finally:
-                    connection.close()
+                # Register against the gate BEFORE upstream I/O so discard/release always drains this relay.
+                if gate is not None:
+                    with gate.condition:
+                        gate.active_relays += 1
 
-                if hold_response:
-                    with proxy._condition:
-                        proxy.captured_execute_response = (resp_status, resp_headers, resp_body)
-                        proxy._active_held_responses += 1
-                    proxy.execute_response_captured.set()
+                try:
+                    headers = _forward_headers(list(self.headers.raw_items()), frozenset({"host", "content-length"}))
+                    connection = HTTPSConnection("localhost", upstream_port, context=upstream_tls, timeout=30)
                     try:
-                        response_gate.wait()
-                        with proxy._lock:
-                            action = proxy._response_action
+                        connection.putrequest(method, raw_path, skip_host=False, skip_accept_encoding=True)
+                        for name, value in headers:
+                            connection.putheader(name, value)
+                        if method == "POST" or body:
+                            connection.putheader("Content-Length", str(len(body)))
+                        connection.endheaders(body if body else None)
+                        response = connection.getresponse()
+                        resp_headers = list(response.getheaders())
+                        resp_body = response.read()
+                        resp_status = response.status
+                    finally:
+                        connection.close()
+
+                    if gate is not None:
+                        with gate.lock:
+                            gate.captured_response = (resp_status, resp_headers, resp_body)
+                        gate.captured.set()
+                        gate.gate.wait()
+                        with gate.lock:
+                            action = gate.action
                         if action != "release":
                             self.close_connection = True
                             return
                         _write_response(self, resp_status, resp_headers, resp_body)
                         return
-                    finally:
-                        with proxy._condition:
-                            proxy._active_held_responses -= 1
-                            if proxy._active_held_responses == 0:
-                                proxy._condition.notify_all()
 
-                _write_response(self, resp_status, resp_headers, resp_body)
+                    _write_response(self, resp_status, resp_headers, resp_body)
+                finally:
+                    if gate is not None:
+                        with gate.condition:
+                            gate.active_relays -= 1
+                            if gate.active_relays == 0:
+                                gate.condition.notify_all()
 
         self._server = _TlsServer(("127.0.0.1", 0), Handler)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)

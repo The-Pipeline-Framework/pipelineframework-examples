@@ -591,6 +591,14 @@ def verify_post_intent_coordinator_death(work, jar, classes, java, node, languag
                     first_dynamo_proxy.fence_and_discard()
                     worker_proxy.discard_execute_response()
 
+            # Confirm execution remained RUNNING v1 after the first coordinator exited and its proxy drained,
+            # before starting the replacement coordinator (lease may already have expired).
+            post_kill_row = _consistent_execution(endpoint, prefix + "_execution", tenant, execution_id)
+            require(post_kill_row is not None and post_kill_row["status"]["S"] == "RUNNING"
+                    and int(post_kill_row["version"]["N"]) == 1 and int(post_kill_row["attempt"]["N"]) == 0
+                    and post_kill_row.get("paired_dispatch_intent", {}).get("M") == observed_in_flight["marker"],
+                    f"Expected RUNNING v1 row with intent after first coordinator exit, got {post_kill_row}")
+
             # Restart with retained DynamoDB + retained file Release registry + fresh staging directory.
             with coordinator(work, jar, launch_file, endpoint, prefix, secret,
                              "post-intent-restart", extra_config=lease_config) as (port, process):
@@ -615,15 +623,15 @@ def verify_post_intent_coordinator_death(work, jar, classes, java, node, languag
                 require(result["status"] == status and result.get("resultPayload") is None,
                         f"Expected no typed payload for REMOTE_OUTCOME_UNKNOWN: {result}")
 
-                # Observe a subsequent ordinary sweep and same-key replay: terminal state and counts stay fixed.
-                sleep(2.2)
+                # Exercise same-key replay and conflict, then keep the coordinator alive across an ordinary sweep.
                 require(http(port, admission, 200, intent) == receipt,
                         "Same-key replay changed original receipt after unknown settlement")
                 http(port, admission, 409, intent | {"inputPayload": intent["inputPayload"] | {"payload": '{"value":4}'}})
+                sleep(2.2)
                 require(http(port, execution_path, 200) == status,
-                        "Subsequent ordinary sweep or replay changed REMOTE_OUTCOME_UNKNOWN status")
+                        "Subsequent ordinary sweep after replay/conflict changed REMOTE_OUTCOME_UNKNOWN status")
                 require(http(port, execution_path + "/result", 200) == result,
-                        "Subsequent ordinary sweep or replay changed REMOTE_OUTCOME_UNKNOWN result")
+                        "Subsequent ordinary sweep after replay/conflict changed REMOTE_OUTCOME_UNKNOWN result")
 
             terminal_row = _assert_unknown_terminal_durable(endpoint, prefix, tenant, execution_id, observed_in_flight)
             _assert_zero_dlq_publications(work, prefix, "post-intent-first", "post-intent-restart")
@@ -742,7 +750,8 @@ def verify_stale_settlement_authority(work, jar, classes, java, node, language, 
                 require(dynamo_proxy.late_settlement_rejected.wait(timeout=15),
                         "Late succeeded settlement did not reach DynamoDB and fail ConditionalCheckFailedException")
                 held_renewals = dynamo_proxy.held_renewals
-                late_settlement_count = len(dynamo_proxy.late_settlement_observations)
+                confirmed_rejections = dynamo_proxy.confirmed_late_settlement_rejections
+                require(confirmed_rejections >= 1, "Expected at least one confirmed ConditionalCheckFailedException")
                 dynamo_proxy.release_held_renewals()
 
                 execution_path = f"{control}/executions/{execution_id}"
@@ -755,15 +764,15 @@ def verify_stale_settlement_authority(work, jar, classes, java, node, language, 
                 require(result["status"] == status and result.get("resultPayload") is None,
                         f"Expected no typed result after rejected late settlement: {result}")
 
-                # Observe a subsequent ordinary sweep and same-key replay on the same live coordinator.
-                sleep(2.2)
+                # Exercise same-key replay and conflict, then keep the coordinator alive across an ordinary sweep.
                 require(http(port, admission, 200, intent) == receipt,
                         "Same-key replay changed original receipt after stale settlement")
                 http(port, admission, 409, intent | {"inputPayload": intent["inputPayload"] | {"payload": '{"value":4}'}})
+                sleep(2.2)
                 require(http(port, execution_path, 200) == status,
-                        "Subsequent ordinary sweep changed stale-settlement terminal status")
+                        "Subsequent ordinary sweep after replay/conflict changed stale-settlement terminal status")
                 require(http(port, execution_path + "/result", 200) == result,
-                        "Subsequent ordinary sweep changed stale-settlement terminal result")
+                        "Subsequent ordinary sweep after replay/conflict changed stale-settlement terminal result")
 
             terminal_row = _assert_unknown_terminal_durable(endpoint, prefix, tenant, execution_id, observed_in_flight)
             _assert_zero_dlq_publications(work, prefix, "stale-live")
@@ -778,7 +787,7 @@ def verify_stale_settlement_authority(work, jar, classes, java, node, language, 
                 "executionId": execution_id,
                 "coordinatorPid": coordinator_pid,
                 "heldRenewals": held_renewals,
-                "rejectedLateSettlements": late_settlement_count,
+                "rejectedLateSettlements": confirmed_rejections,
                 "capabilityGetsTotal": worker_proxy.capability_gets,
                 "executePostsTotal": worker_proxy.execute_posts,
                 "terminalStatus": terminal_row["status"]["S"],

@@ -261,7 +261,11 @@ class RecoveryProxiesTest(unittest.TestCase):
                 with lock:
                     seen_upstream.append((target, expr))
                 if "#status = :succeeded" in expr:
-                    resp = b'{"__type":"com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException"}'
+                    if body.get("ReturnValues") == "VALIDATION_ERROR_CONTROL":
+                        resp = (b'{"__type":"com.amazonaws.dynamodb.v20120810#ValidationException",'
+                                b'"message":"mentions ConditionalCheckFailedException in text"}')
+                    else:
+                        resp = b'{"__type":"com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException"}'
                     status = 400
                 else:
                     resp = b"{}"
@@ -288,7 +292,7 @@ class RecoveryProxiesTest(unittest.TestCase):
                     renewal_outcome.append(_dynamo_post(proxy_port, "DynamoDB_20120810.UpdateItem", {
                         "TableName": "t_exec",
                         "UpdateExpression": "SET #leaseExpires = :leaseExpires, #updated = :now",
-                    }))
+                    }, timeout=20.0))
                 except BaseException as error:
                     renewal_outcome.append(error)
 
@@ -306,21 +310,37 @@ class RecoveryProxiesTest(unittest.TestCase):
             })
             self.assertEqual(200, unknown_status)
 
-            # Late succeeded settlement reaches upstream and is captured as ConditionalCheckFailedException.
+            # A 400 ValidationException mentioning ConditionalCheckFailedException in its text must NOT count.
+            validation_status, _, _ = _dynamo_post(proxy_port, "DynamoDB_20120810.UpdateItem", {
+                "TableName": "t_exec",
+                "UpdateExpression": "SET #status = :succeeded, #version = #version + :one",
+                "ReturnValues": "VALIDATION_ERROR_CONTROL",
+            })
+            self.assertEqual(400, validation_status)
+            self.assertFalse(proxy.late_settlement_rejected.is_set())
+            self.assertEqual(0, proxy.confirmed_late_settlement_rejections)
+
+            # Confirmed ConditionalCheckFailedException reaches upstream and sets the rejection event.
             late_status, _, _ = _dynamo_post(proxy_port, "DynamoDB_20120810.UpdateItem", {
                 "TableName": "t_exec",
                 "UpdateExpression": "SET #status = :succeeded, #version = #version + :one",
             })
             self.assertEqual(400, late_status)
             self.assertTrue(proxy.late_settlement_rejected.wait(timeout=5))
-            self.assertEqual(1, len(proxy.late_settlement_observations))
-            self.assertTrue(t_renew.is_alive())
+            self.assertEqual(1, proxy.confirmed_late_settlement_rejections)
+            self.assertEqual(2, len(proxy.late_settlement_observations))
 
-            # Releasing held renewals forwards them cleanly after late settlement was already observed.
+            # Verify upstream has NOT received any lease renewal immediately before explicit release.
+            with lock:
+                self.assertFalse(any("#leaseExpires = :leaseExpires" in expr for _, expr in seen_upstream))
+
+            # Releasing held renewals forwards them cleanly to upstream after late settlement was observed.
             proxy.release_held_renewals()
             t_renew.join(timeout=5)
             self.assertFalse(t_renew.is_alive())
             self.assertEqual(200, renewal_outcome[0][0])
+            with lock:
+                self.assertTrue(any("#leaseExpires = :leaseExpires" in expr for _, expr in seen_upstream))
 
     def test_worker_https_proxy_holds_and_releases_or_discards_execute_response(self):
         with tempfile.TemporaryDirectory() as td:
