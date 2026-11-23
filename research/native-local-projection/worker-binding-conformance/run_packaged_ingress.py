@@ -1,4 +1,4 @@
-"""Exercise hosted HTTP and a retained terminal result across a real coordinator restart."""
+"""Exercise hosted HTTP, terminal restart retention, and admission-before-intent sweep recovery."""
 
 import argparse
 from contextlib import contextmanager
@@ -12,9 +12,11 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import threading
 from time import monotonic, sleep
 from urllib.parse import urlsplit
 
+from recovery_proxies import DynamoBarrierProxy, WorkerHttpsObserverProxy
 from run_hosted_worker import (
     HERE, LANGUAGES, bundle_fixture, certificates, command, compile_alternate,
     compile_workers, host, local_port, observations, pinned_classpath, pinned_file,
@@ -24,8 +26,8 @@ from run_hosted_worker import (
 TOKEN = "fixture-admin-token"
 
 
-def http(port, path, expected, body=None, token=TOKEN):
-    connection = HTTPConnection("127.0.0.1", port, timeout=5)
+def http(port, path, expected, body=None, token=TOKEN, timeout=5):
+    connection = HTTPConnection("127.0.0.1", port, timeout=timeout)
     headers = {"Content-Type": "application/json"}
     if token is not None:
         headers["Authorization"] = "Bearer " + token
@@ -94,11 +96,13 @@ def coordinator(work, jar, launch, endpoint, prefix, secret, suffix):
         "javax.net.ssl.trustStorePassword": "changeit",
         **{"pipeline.orchestrator." + name: value for name, value in {
             "mode": "QUEUE_ASYNC", "coordination-host": "NATIVE", "state-provider": "dynamo",
-            "dispatcher-provider": "event", "sweep-interval": "PT1S",
+            "dispatcher-provider": "event", "process-loops-disabled": "false",
+            "sweep-interval": "PT1S", "max-retries": "1", "retry-delay": "PT2S",
             "idempotency-policy": "SERVER_KEY_ONLY",
             "admin.enabled": "true", "admin.admin-token": TOKEN,
             "control-plane.enabled": "true", "control-plane.admin-token": TOKEN,
-            "releases.registry.provider": "file", "releases.storage.root": work / prefix,
+            "releases.registry.provider": "file", "releases.storage.provider": "local",
+            "releases.storage.root": work / prefix,
             "dynamo.endpoint-override": endpoint, "dynamo.region": "us-east-1",
             "dynamo.execution-table": prefix + "_execution", "dynamo.execution-key-table": prefix + "_key",
             "dynamo.execution-payload-table": prefix + "_payload", "dynamo.await-interaction-table": prefix + "_interaction",
@@ -133,6 +137,236 @@ def coordinator(work, jar, launch, endpoint, prefix, secret, suffix):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
+
+
+def _consistent_scan(endpoint, table_name):
+    return dynamo(endpoint, "scan", {"TableName": table_name, "ConsistentRead": True})["Items"]
+
+
+def _consistent_execution(endpoint, table_name, tenant, execution_id):
+    return dynamo(endpoint, "get-item", {
+        "TableName": table_name,
+        "Key": {"tenant_id": {"S": tenant}, "execution_id": {"S": execution_id}},
+        "ConsistentRead": True,
+    }).get("Item")
+
+
+def _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_execution_id=None):
+    key_items = _consistent_scan(endpoint, prefix + "_key")
+    intent_rows = [item for item in key_items
+                   if item.get("tenant_execution_key", {}).get("S", "").startswith("paired-dispatch:v1:")]
+    require(intent_rows == [], f"Found unexpected paired dispatch intent before claim: {intent_rows}")
+    receipt_rows = [item for item in key_items if "admission_metadata" in item]
+    index_rows = [item for item in key_items if "execution_id" in item and "admission_metadata" not in item]
+    require(len(receipt_rows) == 1 and len(index_rows) == 1 and len(key_items) == 2,
+            f"Expected 1 native receipt row and 1 execution-key row before claim, found {key_items}")
+    receipt_doc = json.loads(receipt_rows[0]["admission_metadata"]["S"])["receipt"]
+    require(receipt_doc["clientKey"] == client_key, f"Unexpected receipt clientKey: {receipt_doc}")
+    execution_id = receipt_doc["executionId"]
+    require(index_rows[0]["execution_id"]["S"] == execution_id,
+            f"Execution-key index row disagreed with receipt: {index_rows[0]}")
+    if expected_execution_id is not None:
+        require(execution_id == expected_execution_id,
+                f"Receipt executionId changed from {expected_execution_id} to {execution_id}")
+
+    exec_items = _consistent_scan(endpoint, prefix + "_execution")
+    require(len(exec_items) == 1, f"Expected exactly 1 execution row, found {len(exec_items)}: {exec_items}")
+    row = exec_items[0]
+    require(row["execution_id"]["S"] == execution_id, "Execution row ID disagrees with receipt")
+    require(row["status"]["S"] == "QUEUED", f"Expected QUEUED before kill, got {row.get('status')}")
+    require(int(row["version"]["N"]) == 0, f"Expected version 0 before kill, got {row.get('version')}")
+    require(int(row["attempt"]["N"]) == 0, f"Expected attempt 0 before kill, got {row.get('attempt')}")
+    for forbidden in ("lease_owner", "paired_dispatch_intent", "result_payload_json",
+                      "result_payload_reference", "result_payload_digest"):
+        require(forbidden not in row, f"Unexpected {forbidden} on unclaimed execution row: {row}")
+    return execution_id
+
+
+def verify_admission_before_intent_recovery(work, jar, classes, java, node, language, generated, bundle, endpoint):
+    """Kill coordinator after durable admission commit and fenced claim, then prove ordinary sweep sends once."""
+    worker_port = local_port()
+    prefix = f"native_recovery_{language}"
+    tables(endpoint, prefix)
+    calls = work / f"{language}-recovery-calls.jsonl"
+    secret = secrets.token_urlsafe(32)
+    observed_in_flight = {}
+
+    def verify_intent_before_worker_forward(raw_body):
+        cmd = json.loads(raw_body.decode("utf-8"))
+        exec_id = cmd["executionId"]
+        row = _consistent_execution(endpoint, prefix + "_execution", cmd["tenantId"], exec_id)
+        require(row is not None, f"Missing execution row {exec_id} before worker execute POST")
+        require(row["status"]["S"] == "RUNNING", f"Expected RUNNING before worker POST, got {row.get('status')}")
+        require(int(row["version"]["N"]) == 1, f"Expected version 1 before worker POST, got {row.get('version')}")
+        require(int(row["attempt"]["N"]) == 0, f"Expected attempt 0 before worker POST, got {row.get('attempt')}")
+        require("lease_owner" in row and int(row["lease_expires_epoch_ms"]["N"]) > 0,
+                f"Expected live lease before worker POST: {row}")
+        require("paired_dispatch_intent" in row, f"Missing active intent locator before worker POST: {row}")
+        key_items = _consistent_scan(endpoint, prefix + "_key")
+        intent_facts = [item for item in key_items
+                        if item.get("tenant_execution_key", {}).get("S", "").startswith("paired-dispatch:v1:")]
+        require(len(intent_facts) == 1 and "paired_dispatch_intent" in intent_facts[0],
+                f"Expected 1 immutable paired dispatch intent fact before worker POST, got {intent_facts}")
+        observed_in_flight["executionId"] = exec_id
+        observed_in_flight["transitionKey"] = cmd["transitionKey"]
+
+    with WorkerHttpsObserverProxy(
+        upstream_port=worker_port,
+        cafile=work / "ca.pem",
+        certfile=work / "worker.pem",
+        keyfile=work / "worker.key",
+        before_execute_forward=verify_intent_before_worker_forward,
+    ) as worker_proxy:
+        launch = json.loads(command([
+            "java", "-cp", os.pathsep.join((str(classes), java)), "NativeWorkerReleaseConformance",
+            language, str(generated), str(bundle), "-", str(work / f"{language}-recovery-release"),
+            f"https://localhost:{worker_proxy.port}",
+        ], work))
+        target = launch["target"]
+        target["sharedSecretRef"] = "env:TPF_NATIVE_WORKER_SECRET"
+        launch.update(port=worker_port, calls=str(calls), secret=secret,
+                      key=str(work / "worker.key"), cert=str(work / "worker.pem"))
+        launch_file = write_launch(work, f"{language}-recovery", {"target": target, "descriptor": launch["descriptor"]})
+        tenant = target["tenantId"]
+        pipeline = target["coordinatorContract"]["pipelineId"]
+        release = target["releaseVersion"]
+        admin = f"/tpf/admin/tenants/{tenant}/pipelines/{pipeline}/releases"
+        control = f"/tpf/control-plane/tenants/{tenant}"
+        admission = f"{control}/pipelines/{pipeline}/execution-admissions"
+        client_key = "admission-before-intent"
+        intent = {
+            "clientKey": client_key, "contractVersion": launch["command"]["contractVersion"],
+            "releaseVersion": release, "inputShape": "UNI", "outputStreaming": False,
+            "inputPayload": {"payloadTypeId": launch["inputType"],
+                             "payloadEncoding": "tpf-polyglot-int32-json/1", "payload": '{"value":3}'},
+        }
+
+        with host(language, work, node, launch), DynamoBarrierProxy(endpoint) as dynamo_proxy:
+            submit_outcome = []
+
+            def submit_admit(port):
+                try:
+                    submit_outcome.append(("response", http(port, admission, 200, intent, timeout=60)))
+                except BaseException as error:
+                    submit_outcome.append(("error", repr(error)))
+
+            with coordinator(work, jar, launch_file, dynamo_proxy.endpoint, prefix, secret, "recovery-first") as (port, process):
+                http(port, admin + "/register", 200, {"releaseDescriptorPath": launch["descriptor"]})
+                registered = http(port, f"{admin}/{release}", 200)
+                dynamo_proxy.arm_admission_before_intent(prefix + "_execution", prefix + "_key")
+
+                client_thread = threading.Thread(target=submit_admit, args=(port,), daemon=True)
+                client_thread.start()
+
+                require(dynamo_proxy.admission_committed.wait(timeout=20),
+                        "Admission transaction did not commit to DynamoDB while barrier was armed")
+                require(dynamo_proxy.claim_held.wait(timeout=15),
+                        "Ordinary sweep did not attempt a claim while barrier was armed")
+
+                execution_id = _assert_admitted_and_unclaimed(endpoint, prefix, client_key)
+                require(dynamo_proxy.unexpected_intent_writes == 0,
+                        f"Unexpected intent writes while barrier armed: {dynamo_proxy.unexpected_intent_writes}")
+                require(dynamo_proxy.held_claims >= 1, "Expected at least one fenced claim attempt")
+                require(worker_proxy.execute_posts == 0,
+                        f"Worker received {worker_proxy.execute_posts} execute POST(s) before coordinator kill")
+                require(worker_proxy.capability_gets >= 1, "Expected admission capability probe before commit")
+                require(observations(calls) == [], f"Worker ran business handlers before kill: {observations(calls)}")
+
+                first_pid = process.pid
+                process.kill()
+                require(process.wait(timeout=8) == -9, "First coordinator did not exit on SIGKILL")
+                client_thread.join(timeout=10)
+                require(not client_thread.is_alive(), "Submitting client thread hung after coordinator SIGKILL")
+                require(submit_outcome and submit_outcome[0][0] == "error",
+                        f"Client unexpectedly received admission ack despite held barrier: {submit_outcome}")
+                dynamo_proxy.discard_held_and_disarm()
+
+            # Confirm the durable QUEUED row survived the kill and discarded requests without any worker traffic.
+            _assert_admitted_and_unclaimed(endpoint, prefix, client_key, expected_execution_id=execution_id)
+            require(worker_proxy.execute_posts == 0, "Discarded process still sent an execute POST")
+            require(observations(calls) == [], "Discarded process reached business handlers")
+            pre_restart_caps = worker_proxy.capability_gets
+
+            # Restart with retained DynamoDB + retained file Release registry + fresh staging directory.
+            with coordinator(work, jar, launch_file, dynamo_proxy.endpoint, prefix, secret, "recovery-restart") as (port, process):
+                second_pid = process.pid
+                require(second_pid != first_pid, "Expected a fresh coordinator PID after restart")
+                require(http(port, f"{admin}/{release}", 200) == registered,
+                        "Retained Release changed across coordinator restart")
+                retained_receipt = http(port, f"{admission}/{client_key}", 200)
+                require(retained_receipt["executionId"] == execution_id
+                        and retained_receipt["releaseVersion"] == release,
+                        f"Retained receipt disagreed with committed execution: {retained_receipt}")
+
+                # Do not re-submit or mutate state: wait for the ordinary sweep to claim and complete the original row.
+                execution_path = f"{control}/executions/{execution_id}"
+                deadline = monotonic() + 30
+                status = http(port, execution_path, 200)
+                while status["status"] in {"QUEUED", "RUNNING", "WAIT_RETRY"} and monotonic() < deadline:
+                    sleep(0.1)
+                    status = http(port, execution_path, 200)
+                require(status["status"] == "SUCCEEDED", f"Expected sweep-driven SUCCEEDED, got {status}")
+                result = http(port, execution_path + "/result", 200)
+                require(result["status"] == status and status["executionId"] == execution_id,
+                        "Recovered result changed execution identity or status")
+                require(result["resultPayload"] == {
+                    "payloadTypeId": launch["outputType"],
+                    "payloadEncoding": "tpf-polyglot-int32-json/1",
+                    "payload": '{"value":5}',
+                }, f"Unexpected recovered typed result: {result}")
+                require(http(port, admission, 200, intent) == retained_receipt,
+                        "Same-key replay after recovery did not return the original receipt")
+                http(port, admission, 409, intent | {"inputPayload": intent["inputPayload"] | {"payload": '{"value":4}'}})
+
+            require(worker_proxy.callback_errors == [], f"Pre-forward intent check failed: {worker_proxy.callback_errors}")
+            require(worker_proxy.execute_posts == 1,
+                    f"Expected exactly 1 execute POST after restart, got {worker_proxy.execute_posts}")
+            require(worker_proxy.pre_forward_checks == 1,
+                    f"Expected 1 pre-forward durable intent check, got {worker_proxy.pre_forward_checks}")
+            require(observed_in_flight == {"executionId": execution_id, "transitionKey": f"{execution_id}:0:0"},
+                    f"Unexpected in-flight observation: {observed_in_flight}")
+
+            terminal_row = _consistent_execution(endpoint, prefix + "_execution", tenant, execution_id)
+            require(terminal_row is not None and terminal_row["status"]["S"] == "SUCCEEDED",
+                    f"Unexpected final DynamoDB execution row: {terminal_row}")
+            require(int(terminal_row["version"]["N"]) == 2, f"Expected terminal version 2, got {terminal_row.get('version')}")
+            require(int(terminal_row["attempt"]["N"]) == 0, f"Expected terminal attempt 0, got {terminal_row.get('attempt')}")
+            require("lease_owner" not in terminal_row, f"Lease owner was not cleared on settlement: {terminal_row}")
+            require("paired_dispatch_intent" not in terminal_row,
+                    f"Active intent locator was not cleared on known settlement: {terminal_row}")
+            require(terminal_row.get("last_transition_key", {}).get("S") == f"{execution_id}:0:0",
+                    f"Unexpected terminal transition key: {terminal_row}")
+
+            final_keys = _consistent_scan(endpoint, prefix + "_key")
+            final_intents = [item for item in final_keys
+                             if item.get("tenant_execution_key", {}).get("S", "").startswith("paired-dispatch:v1:")]
+            final_receipts = [item for item in final_keys if "admission_metadata" in item]
+            require(len(final_intents) == 1, f"Expected 1 retained immutable intent fact, got {len(final_intents)}")
+            require(len(final_receipts) == 1, f"Expected 1 retained native receipt row, got {len(final_receipts)}")
+            require(len(final_keys) == 3,
+                    f"Expected 1 receipt + 1 execution-key + 1 immutable intent fact row, got {len(final_keys)}")
+
+            context = {"executionId": execution_id, "traceId": execution_id}
+            expected_calls = [{"handler": name, "value": value, "context": context}
+                              for name, value in (("normalize", 3), ("apply", 4), ("finish", 8))]
+            require(observations(calls) == expected_calls,
+                    f"Unexpected worker business calls: {observations(calls)}")
+
+            print(json.dumps({
+                "case": "admission-before-intent-recovery",
+                "language": language,
+                "executionId": execution_id,
+                "firstPid": first_pid,
+                "secondPid": second_pid,
+                "heldClaimsBeforeKill": dynamo_proxy.held_claims,
+                "capabilityGetsBeforeKill": pre_restart_caps,
+                "capabilityGetsTotal": worker_proxy.capability_gets,
+                "executePostsTotal": worker_proxy.execute_posts,
+                "terminalVersion": int(terminal_row["version"]["N"]),
+                "terminalAttempt": int(terminal_row["attempt"]["N"]),
+                "businessCalls": len(expected_calls),
+            }), flush=True)
+            print(f"PACKAGED_ADMISSION_BEFORE_INTENT_RECOVERY_PASS:{language}", flush=True)
 
 
 def run(work, manifest, endpoint, runtime_version, maven, maven_args):
@@ -236,6 +470,7 @@ def run(work, manifest, endpoint, runtime_version, maven, maven_args):
         require(observations(calls) == [{"handler": name, "value": value, "context": context}
                 for name, value in (("normalize", 3), ("apply", 4), ("finish", 8))], "Unexpected business calls or context")
         print(f"PACKAGED_HOSTED_INGRESS_PASS:{language}", flush=True)
+        verify_admission_before_intent_recovery(work, jar, classes, java, node, language, generated, bundle, endpoint)
 
 
 if __name__ == "__main__":

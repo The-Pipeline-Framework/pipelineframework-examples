@@ -99,11 +99,25 @@ producer for the prepared Release binding, then verifies the embedded runtime JA
 against the candidate digest. The coordinator and both workers use loopback
 addresses. The client in this exercise uses Python's standard HTTP library.
 
-For each worker, the smoke registers the Release over HTTP, checks that denied
+For each worker, the runner first executes the direct-HTTPS ingress and
+terminal-retention smoke: it registers the Release over HTTP, checks that denied
 admission leaves no execution or receipt, and checks the typed result and the
 worker's execution and trace IDs. It kills the coordinator after settlement and
 starts a fresh process over the same files and DynamoDB instance. With the worker
 offline, it retrieves the original Release, receipt and result and exercises
-same-key replay and conflict through HTTP. Normal event dispatch and sweep are
-enabled. Recovery driven by the sweep, interruption during dispatch and
-client disconnect are separate cases in the #82 recovery ledger.
+same-key replay and conflict through HTTP.
+
+It then exercises coordinator death after durable admission before dispatch
+intent over isolated tables and a separate retained Release directory. A
+loopback DynamoDB proxy holds the committed admission transaction
+acknowledgement and fences execution claims before they reach DynamoDB while an
+HTTPS observer proxy verifies upstream worker TLS and counts capability probes
+separately from execute posts. After confirming the durable `QUEUED` v0 row with
+zero intent rows and zero worker calls, it sends `SIGKILL`, discards only the
+dead process's held traffic, disarms the barrier, and starts a fresh coordinator
+process. Without re-submitting or editing stored rows, the ordinary sweep claims
+the retained execution, persists dispatch intent before the single forwarded
+execute POST, settles the typed result, and preserves the original receipt and
+immutable intent fact. Post-intent interruption, worker/network faults, stale
+settlement, binding isolation and client disconnect remain separate cases in the
+#82 recovery ledger.

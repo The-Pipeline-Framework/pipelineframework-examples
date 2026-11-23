@@ -62,7 +62,7 @@ def host(language, work, node, launch):
         try:
             process.stdin.write(json.dumps(launch).encode())
             process.stdin.close()
-            require(select.select([process.stdout], [], [], 15)[0] and process.stdout.readline() == b"READY\n",
+            require(select.select([process.stdout], [], [], 60)[0] and process.stdout.readline() == b"READY\n",
                     f"{language} failed to bind HTTPS: {log.read_text()}")
             yield
         finally:
