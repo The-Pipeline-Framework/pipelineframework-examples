@@ -64,14 +64,15 @@ def host(language, work, node, launch):
             process.stdin.close()
             require(select.select([process.stdout], [], [], 60)[0] and process.stdout.readline() == b"READY\n",
                     f"{language} failed to bind HTTPS: {log.read_text()}")
-            yield
+            yield process
         finally:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
 
 
 def signed(method, path, body, secret, *, timestamp=None, nonce=None):

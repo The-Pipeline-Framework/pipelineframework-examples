@@ -16,6 +16,7 @@ import threading
 from time import monotonic, sleep, time
 from urllib.parse import urlsplit
 
+from packaged_worker_faults import PackagedHarness, run_worker_faults_and_duplicates
 from recovery_proxies import DynamoBarrierProxy, WorkerHttpsObserverProxy
 from run_hosted_worker import (
     HERE, LANGUAGES, bundle_fixture, certificates, command, compile_alternate,
@@ -902,6 +903,21 @@ def run(work, manifest, endpoint, runtime_version, maven, maven_args):
         verify_admission_before_intent_recovery(work, jar, classes, java, node, language, generated, bundle, endpoint)
         verify_post_intent_coordinator_death(work, jar, classes, java, node, language, generated, bundle, endpoint)
         verify_stale_settlement_authority(work, jar, classes, java, node, language, generated, bundle, endpoint)
+        run_worker_faults_and_duplicates(
+            PackagedHarness(
+                http=http,
+                tables=tables,
+                coordinator=coordinator,
+                consistent_execution=_consistent_execution,
+                consistent_scan=_consistent_scan,
+                verify_durable_in_flight_intent=_verify_durable_in_flight_intent,
+                expected_completed_wire=_expected_completed_wire,
+                assert_unknown_terminal_durable=_assert_unknown_terminal_durable,
+                assert_zero_dlq_publications=_assert_zero_dlq_publications,
+                distinct_port=_distinct_port,
+            ),
+            work, jar, classes, java, node, language, generated, bundle, endpoint,
+        )
 
 
 if __name__ == "__main__":

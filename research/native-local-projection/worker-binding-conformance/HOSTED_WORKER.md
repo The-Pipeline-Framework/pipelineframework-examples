@@ -107,10 +107,10 @@ starts a fresh process over the same files and DynamoDB instance. With the worke
 offline, it retrieves the original Release, receipt and result and exercises
 same-key replay and conflict through HTTP.
 
-It then exercises three fault-recovery cases over isolated tables and retained
-Release directories using a loopback DynamoDB barrier proxy and an HTTPS worker
-observer proxy that verifies upstream worker TLS and counts capability probes
-separately from execute posts:
+It then exercises recovery, worker/network fault, and duplicate-delivery cases
+over isolated tables and retained Release directories using a loopback DynamoDB
+barrier proxy and an HTTPS worker observer proxy that verifies upstream worker
+TLS and counts capability probes separately from execute posts:
 
 - **Coordinator death after admission before intent:** holds the committed
   admission transaction acknowledgement and fences execution claims before they
@@ -130,6 +130,22 @@ separately from execute posts:
   `REMOTE_OUTCOME_UNKNOWN`, releases the worker completion first to observe the
   late settlement fail its DynamoDB conditional write, and only then releases
   the renewal gate.
+- **Worker death before and after business entry:** either withholds the
+  execute request body after verified TLS handshake before `SIGKILL` (proving
+  zero business calls before worker restart) or pauses after a flushed
+  `normalize(3)` witness before `apply` and sends `SIGKILL`, verifying
+  `REMOTE_OUTCOME_UNKNOWN` with zero resend or DLQ in both cases.
+- **Dropped response, corrupted active response, and generic execute 503:**
+  captures a valid worker completion and drops the response or replaces it on
+  the original channel with invalid JSON or an incompatible typed output, or
+  short-circuits a plain HTTP `503` after durable intent without forwarding,
+  verifying `REMOTE_OUTCOME_UNKNOWN` with zero resend or DLQ.
+- **Duplicate CDI delivery and duplicate worker request:** holds the committed
+  admission acknowledgement so the ordinary sweep claim races the immediate
+  event claim unchanged against DynamoDB (exact one successful claim, one
+  conditional failure, one execute POST, and known `SUCCEEDED`), then replays
+  the captured signed execute POST and nonce directly against the running
+  worker (HTTP `401`, zero additional handler calls, settled result unchanged).
 
-Worker/network faults, duplicate delivery, binding isolation and client
-disconnect remain separate cases in the #82 recovery ledger.
+Binding isolation, client disconnect, coordinator death after settlement, and
+ingress validation remain separate cases in the #82 recovery ledger.

@@ -1,4 +1,4 @@
-import {appendFileSync, readFileSync, realpathSync} from 'node:fs';
+import {closeSync, fsyncSync, openSync, readFileSync, realpathSync, renameSync, writeSync} from 'node:fs';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
@@ -14,16 +14,33 @@ const {createNativeTransitionWorker} = await load(kernel + '/worker.mjs');
 const {StructuredFailure} = await load(kernel + '/index.mjs');
 const {createApplication} = await load('app/application.js');
 const {handlers} = await load('app/business.js');
+function writeSynced(path, flags, line) {
+  const fd = openSync(path, flags);
+  try {
+    writeSync(fd, line);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 const counted = Object.fromEntries(Object.entries(handlers).map(([name, handler]) => [
-  name, (record, context) => {
-    appendFileSync(input.calls, JSON.stringify({handler: name, value: record.value, context}) + '\n');
+  name, async (record, context) => {
+    writeSynced(input.calls, 'a', JSON.stringify({handler: name, value: record.value, context}) + '\n');
     if (name === 'apply' && [11, 12, 13].includes(record.value)) {
       if (record.value === 13) throw new Error('must not be sent to coordinator');
       const retryable = record.value === 11;
       throw new StructuredFailure({code: retryable ? 'TRANSIENT' : 'BUSINESS_REJECTION',
         message: 'must not be sent to coordinator', retryable, owner: 'LOCAL_SHELL', stepId: 'B'});
     }
-    return handler(record, context);
+    const result = await handler(record, context);
+    if (name === 'normalize' && input.pauseAfterNormalize) {
+      const tmp = input.pauseAfterNormalize + '.tmp';
+      writeSynced(tmp, 'w', JSON.stringify({handler: name, value: record.value, context}) + '\n');
+      renameSync(tmp, input.pauseAfterNormalize);
+      await new Promise(() => {});
+    }
+    return result;
   },
 ]));
 
