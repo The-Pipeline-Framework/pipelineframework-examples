@@ -135,6 +135,7 @@ final class HostedWorkerCoordinatorProbe {
                 "pipeline.orchestrator.idempotency-policy", "CLIENT_KEY_REQUIRED",
                 "pipeline.orchestrator.control-plane.enabled", "true",
                 "pipeline.orchestrator.control-plane.admin-token", "fixture-admin-token",
+                "pipeline.orchestrator.experimental.native-worker.enabled", "true",
                 "pipeline.orchestrator.worker.rest.request-timeout", "PT5S",
                 "pipeline.orchestrator.dynamo.execution-table", prefix + "_execution",
                 "pipeline.orchestrator.dynamo.execution-key-table", prefix + "_key",

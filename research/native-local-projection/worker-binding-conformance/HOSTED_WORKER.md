@@ -151,13 +151,15 @@ For each worker language, the runner exercises:
   separately holds the committed terminal `SUCCEEDED` acknowledgement until
   `SIGKILL` and verifies the original Release, receipt, and typed result
   survive restart with the worker offline.
-- **Wrong Release, missing/replaced binding, and stale worker isolation:**
-  verifies direct signed commands carrying a wrong Release fail before business
-  entry (`400`, zero rows/calls), and verifies that restarting over a retained
-  unclaimed execution with a missing binding, a replacement Release binding, or
-  a stale worker follows the pre-intent failure oracle (`WAIT_RETRY` v2/a1 to
-  `FAILED` v4/a1, zero dispatch intent, zero worker calls, zero Java fallback,
-  original receipt retained).
+- **Wrong Release, killswitch, missing/replaced binding, and stale worker
+  isolation:** verifies direct signed commands carrying a wrong Release fail
+  before business entry (`400`, zero rows/calls), and verifies that restarting
+  over a retained unclaimed execution with
+  `pipeline.orchestrator.experimental.native-worker.enabled=false` (while the
+  prepared CDI binding remains present), a missing binding, a replacement
+  Release binding, or a stale worker follows the pre-intent failure oracle
+  (`WAIT_RETRY` v2/a1 to `FAILED` v4/a1, zero dispatch intent, zero worker
+  calls, zero Java fallback, original receipt retained).
 - **Ingress validation, readiness rejections, portable failures, and distinct
   keys:** verifies missing/wrong bearer tokens (`401`), unregistered scopes
   (`404`), malformed/invalid inputs (`400`), oversized >16 KiB paired payloads

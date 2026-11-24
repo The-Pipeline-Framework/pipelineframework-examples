@@ -75,6 +75,7 @@ def verify_java_fallback_positive_control(h: PackagedHarness, work: Path, jar: P
 
     extra = observation_config(dispatch_log, {
         "proof.binding.enabled": "false",
+        "pipeline.orchestrator.experimental.native-worker.enabled": "false",
         "pipeline.orchestrator.idempotency-policy": "CLIENT_KEY_REQUIRED",
         "pipeline.orchestrator.control-plane.payload-materialization": "SERIALIZED",
         "pipeline.orchestrator.release-version": release,
@@ -426,6 +427,48 @@ def run_isolation_and_disconnect_cases(h: PackagedHarness, work: Path, jar: Path
                 "genericDispatches": generic_dispatch_count(native_dispatch_log),
             }), flush=True)
             print(f"PACKAGED_MISSING_BINDING_PASS:{language}", flush=True)
+
+            # 3b. Killswitch disabled after restart (valid CDI binding still present, experimental flag off).
+            prefix = f"native_killswitch_{language}"
+            h.tables(endpoint, prefix)
+            worker_proxy.reset_counters()
+            worker_proxy.set_before_execute_forward(None)
+            before_calls = len(observations(calls))
+            client_key = "killswitch-disabled-after-restart"
+            registered, durable_receipt, first_pid = _admit_and_kill_before_intent(
+                h, work, jar, launch, launch_file, endpoint, prefix, secret, admin, admission, release,
+                _intent_for(launch, release, client_key), worker_proxy, calls, before_calls,
+                "killswitch-first", native_dispatch_log)
+
+            killswitch_cfg = observation_config(native_dispatch_log, {
+                "proof.binding.enabled": "true",
+                "pipeline.orchestrator.experimental.native-worker.enabled": "false",
+            })
+            with h.coordinator(work, jar, launch_file, endpoint, prefix, secret, "killswitch-restart",
+                               extra_config=killswitch_cfg) as (port, proc):
+                second_pid = proc.pid
+                require(second_pid != first_pid, "Expected fresh coordinator PID after killswitch restart")
+                require(h.http(port, f"{admin}/{release}", 200) == registered,
+                        "Retained Release changed with killswitch disabled")
+                terminal_row = _assert_pre_intent_failure_oracle(
+                    h, port, endpoint, prefix, tenant, admission, control, client_key, durable_receipt,
+                    native_dispatch_log)
+            require(worker_proxy.execute_posts == 0 and observations(calls)[before_calls:] == [],
+                    "Killswitch-disabled restart dispatched to worker")
+            print(json.dumps({
+                "case": "killswitch-disabled-after-restart",
+                "language": language,
+                "executionId": durable_receipt["executionId"],
+                "firstPid": first_pid,
+                "secondPid": second_pid,
+                "executePostsTotal": worker_proxy.execute_posts,
+                "terminalStatus": terminal_row["status"]["S"],
+                "terminalVersion": int(terminal_row["version"]["N"]),
+                "terminalAttempt": int(terminal_row["attempt"]["N"]),
+                "businessCalls": 0,
+                "genericDispatches": generic_dispatch_count(native_dispatch_log),
+            }), flush=True)
+            print(f"PACKAGED_KILLSWITCH_DISABLED_PASS:{language}", flush=True)
 
             # 4. Replaced binding after restart (valid v2 Release/descriptor) -> pre-intent failure oracle.
             prefix = f"native_replaced_bind_{language}"

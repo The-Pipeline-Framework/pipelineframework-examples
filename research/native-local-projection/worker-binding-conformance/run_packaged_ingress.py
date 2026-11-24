@@ -111,6 +111,7 @@ def coordinator(work, jar, launch, endpoint, prefix, secret, suffix, extra_confi
             "idempotency-policy": "SERVER_KEY_ONLY",
             "admin.enabled": "true", "admin.admin-token": TOKEN,
             "control-plane.enabled": "true", "control-plane.admin-token": TOKEN,
+            "experimental.native-worker.enabled": "true",
             "releases.registry.provider": "file", "releases.storage.provider": "local",
             "releases.storage.root": work / prefix,
             "dynamo.endpoint-override": endpoint, "dynamo.region": "us-east-1",
