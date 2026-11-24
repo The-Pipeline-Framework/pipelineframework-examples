@@ -20,6 +20,9 @@ TPF_PID_DIR="${TPF_PID_DIR:-${TPF_RUN_DIR}/pids}"
 TPF_ORCHESTRATOR_MAX_RETRIES="${TPF_ORCHESTRATOR_MAX_RETRIES:-0}"
 TPF_ORCHESTRATOR_RETRY_DELAY="${TPF_ORCHESTRATOR_RETRY_DELAY:-PT1S}"
 
+# Exercise the existing REST client binding, leaving the business pipeline unchanged.
+export TPF_FINALIZE_REST_BASE_URL="${TPF_FINALIZE_REST_BASE_URL:-http://localhost:${TPF_COORDINATOR_PORT}/incident-unavailable}"
+
 CI_MODE=false
 if [[ "${1:-}" == "--ci" ]]; then
   CI_MODE=true

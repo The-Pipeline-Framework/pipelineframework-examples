@@ -29,17 +29,17 @@ public class RestaurantDecisionMapper
 
   public RestaurantDecision fromDto(RestaurantDecisionDto dto) {
     if (dto instanceof RestaurantOrderAcceptedDto acceptedDto) {
-      return new RestaurantOrderAccepted(
+      return new RestaurantDecision.Accepted(new RestaurantOrderAccepted(
           acceptedDto.orderId(),
           acceptedDto.decidedAt(),
-          acceptedDto.note());
+          acceptedDto.note()));
     }
     if (dto instanceof RestaurantOrderDeclinedDto declinedDto) {
-      return new RestaurantOrderDeclined(
+      return new RestaurantDecision.Declined(new RestaurantOrderDeclined(
           declinedDto.orderId(),
           declinedDto.decidedAt(),
           declinedDto.note(),
-          declinedDto.declineReason());
+          declinedDto.declineReason()));
     }
     throw new IllegalArgumentException("Unsupported RestaurantDecisionDto variant: " + dto);
   }
@@ -66,17 +66,17 @@ public class RestaurantDecisionMapper
   }
 
   public RestaurantDecision fromGrpc(PipelineTypes.RestaurantDecision external) {
-    return switch (external.getOutcomeCase()) {
-      case ACCEPTED -> new RestaurantOrderAccepted(
+    return switch (external.getValueCase()) {
+      case ACCEPTED -> new RestaurantDecision.Accepted(new RestaurantOrderAccepted(
           uuid(external.getAccepted().getOrderId()),
           instant(external.getAccepted().getDecidedAt()),
-          external.getAccepted().getNote());
-      case DECLINED -> new RestaurantOrderDeclined(
+          external.getAccepted().getNote()));
+      case DECLINED -> new RestaurantDecision.Declined(new RestaurantOrderDeclined(
           uuid(external.getDeclined().getOrderId()),
           instant(external.getDeclined().getDecidedAt()),
           external.getDeclined().getNote(),
-          external.getDeclined().getDeclineReason());
-      case OUTCOME_NOT_SET -> throw new IllegalArgumentException(
+          external.getDeclined().getDeclineReason()));
+      case VALUE_NOT_SET -> throw new IllegalArgumentException(
           "RestaurantDecision has no selected variant");
     };
   }

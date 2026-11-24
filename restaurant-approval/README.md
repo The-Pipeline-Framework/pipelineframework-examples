@@ -134,3 +134,11 @@ The decision output is a typed union:
 - The self-hosted coordinator path is a public adoption reference, not a managed service. The default demo is one process with the local worker; the REST worker split remains available as a protocol proof.
 - The current example includes manual union DTO/mapper support for the decision type because the generator does not scaffold that part yet. This is tracked as generator debt in [#305](https://github.com/The-Pipeline-Framework/pipelineframework/issues/305).
 - The generated `common` module currently emits a non-blocking `com.google.protobuf` split-package warning in Quarkus builds. That scaffold issue is tracked in [#304](https://github.com/The-Pipeline-Framework/pipelineframework/issues/304).
+
+## Lambda REST worker preparation
+
+The [Lambda REST worker package](worker-lambda-svc/README.md) reuses this application's
+canonical contract and services with the existing registered REST worker profile.
+It preserves the local Next.js journey. A packaged worker is separate from UI
+hosting and from installed caller identity, human interaction and deployment
+qualification; its remaining publication/installation gates are explicit.

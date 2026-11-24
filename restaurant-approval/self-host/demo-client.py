@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import base64
 import hashlib
 import json
 import sys
@@ -12,7 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 PAYLOAD_ENCODING = "application/tpf-transition+json"
-ORDER_TYPE = "org.pipelineframework.restaurantapproval.common.dto.PlaceRestaurantOrderRequestDto"
+DECISION_TYPE = "org.pipelineframework.restaurantapproval.dto.RestaurantDecisionDto"
+ORDER_TYPE = "org.pipelineframework.restaurantapproval.common.domain.PlaceRestaurantOrderRequest"
 
 
 def request(method, url, token=None, body=None, timeout=10):
@@ -353,10 +355,11 @@ def complete(args, interaction, decision):
                 "declineReason": "Kitchen is overloaded tonight",
             }
         }
+    decision_payload["discriminator"] = decision
     body = {
         "interactionId": interaction["interactionId"],
         "idempotencyKey": f"complete-{interaction['interactionId']}",
-        "responsePayload": encoded_payload(decision_payload, "java.util.Map"),
+        "responsePayload": encoded_payload(decision_payload, DECISION_TYPE),
         "actor": "restaurant-self-host-demo",
     }
     completed = request(
@@ -377,10 +380,11 @@ def complete_invalid_decision(args, interaction):
             "note": "This completion is intentionally invalid for the incident demo.",
         }
     }
+    decision_payload["discriminator"] = "accepted"
     body = {
         "interactionId": interaction["interactionId"],
         "idempotencyKey": f"complete-invalid-{interaction['interactionId']}",
-        "responsePayload": encoded_payload(decision_payload, "java.util.Map"),
+        "responsePayload": encoded_payload(decision_payload, DECISION_TYPE),
         "actor": "restaurant-self-host-incident-demo",
     }
     completed = request(
@@ -405,6 +409,12 @@ def decode_payload(envelope):
     if envelope["payloadEncoding"] != PAYLOAD_ENCODING:
         raise ValueError(f"Unsupported result payload encoding: {envelope['payloadEncoding']}")
     payload = json.loads(envelope["payload"])
+    if envelope["payloadTypeId"] == "org.pipelineframework.orchestrator.TypedDurablePayload":
+        if payload.get("encoding") != "application/tpf-canonical+json" or payload.get("encodingVersion") != 1:
+            raise ValueError("Unsupported canonical result payload encoding")
+        if payload.get("canonicalTypeId") != "TerminalOrderState":
+            raise ValueError("Unexpected Restaurant terminal canonical type")
+        return json.loads(base64.b64decode(payload["payload"], validate=True))
     if envelope["payloadTypeId"] == "java.util.Map":
         items = payload["items"]
         if not isinstance(items, dict):
@@ -477,7 +487,19 @@ def run_incident(args):
     execution_id = submit_order(args, "Katherine Johnson", "Faulty Kitchen")
     wait_status(args, execution_id, "WAITING_EXTERNAL")
     interaction = pending_interaction(args, execution_id)
-    complete_invalid_decision(args, interaction)
+    # Canonical v3 REST validates UUIDs at admission. Rejection must leave Await intact.
+    try:
+        complete_invalid_decision(args, interaction)
+    except RuntimeError as rejected:
+        if "failed with HTTP 400:" not in str(rejected):
+            raise
+    else:
+        raise RuntimeError("Invalid UUID completion was admitted")
+    wait_status(args, execution_id, "WAITING_EXTERNAL")
+    retained = pending_interaction(args, execution_id)
+    if retained["interactionId"] != interaction["interactionId"] or retained.get("requestPayload") != interaction.get("requestPayload"):
+        raise RuntimeError("Rejected completion mutated the waiting interaction")
+    complete(args, retained, "accepted")
     terminal = wait_terminal_failure(args, execution_id)
     if terminal.get("errorCode") in {None, ""}:
         raise RuntimeError(f"Expected terminal failure to include errorCode; got {terminal}")
@@ -511,7 +533,7 @@ def run_incident(args):
         "redrive": redrive_summary,
         "operatorAction": (
             "The admin re-drive endpoint re-queued the durable execution record. "
-            "This demo intentionally re-drives the same invalid payload, so it fails again; "
+            "This demo re-drives the same valid decision while the configured final REST endpoint remains unavailable, so it fails again; "
             "real recovery requires correcting the dependency/input path and relying on stable idempotency keys."
         ),
     }, indent=2, sort_keys=True))

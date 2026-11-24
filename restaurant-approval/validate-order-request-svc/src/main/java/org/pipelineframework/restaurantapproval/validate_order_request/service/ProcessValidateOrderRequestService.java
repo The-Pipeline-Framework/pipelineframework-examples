@@ -21,15 +21,8 @@ public class ProcessValidateOrderRequestService
   public Uni<ValidatedRestaurantOrderRequest> process(PlaceRestaurantOrderRequest input) {
     return Uni.createFrom().item(() -> {
       Objects.requireNonNull(input, "input must not be null");
-      ValidatedRestaurantOrderRequest output = new ValidatedRestaurantOrderRequest();
-      output.requestId = input.requestId;
-      output.customerName = input.customerName;
-      output.restaurantName = input.restaurantName;
-      output.items = input.items;
-      output.totalAmount = input.totalAmount;
-      output.currency = input.currency;
-      output.validatedAt = Instant.now(clock);
-      return output;
+      return new ValidatedRestaurantOrderRequest(input.requestId(), input.customerName(),
+          input.restaurantName(), input.items(), input.totalAmount(), input.currency(), Instant.now(clock));
     });
   }
 }

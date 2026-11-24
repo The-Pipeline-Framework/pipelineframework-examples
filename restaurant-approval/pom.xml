@@ -18,6 +18,7 @@
     <modules>
         <module>common</module>
         <module>monolith-svc</module>
+        <module>worker-lambda-svc</module>
     </modules>
 
     <properties>
@@ -41,6 +42,12 @@
         <pipeline.moduleArg>-Apipeline.module=${project.artifactId}</pipeline.moduleArg>
         <protobuf.descriptor.fileArg />
         <pipeline.parallelism>PARALLEL</pipeline.parallelism>
+        <!-- Compatibility qualification pins each published artifact independently; ordinary builds use the selected runtime family. -->
+        <restaurant.contracts.version>${pipelineframework.contracts.version}</restaurant.contracts.version>
+        <restaurant.worker.host.version>${pipelineframework.runtime.version}</restaurant.worker.host.version>
+        <restaurant.worker.model.version>${pipelineframework.runtime.version}</restaurant.worker.model.version>
+        <restaurant.worker.resolver.version>${pipelineframework.runtime.version}</restaurant.worker.resolver.version>
+        <restaurant.release.plugin.version>${pipelineframework.runtime.version}</restaurant.release.plugin.version>
         <tpf.build.transport>REST</tpf.build.transport>
         <tpf.build.platform>COMPUTE</tpf.build.platform>
         <!-- Default: don't build containers unless specifically enabled -->
@@ -54,6 +61,50 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.pipelineframework</groupId><artifactId>pipelineframework-aws-durable-coordination-model</artifactId>
+                <version>${restaurant.worker.model.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pipelineframework</groupId><artifactId>pipelineframework-release-resolver</artifactId>
+                <version>${restaurant.worker.resolver.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pipelineframework</groupId><artifactId>pipelineframework-api</artifactId>
+                <version>${restaurant.contracts.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pipelineframework</groupId><artifactId>pipelineframework-dsl</artifactId>
+                <version>${restaurant.contracts.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pipelineframework</groupId><artifactId>pipelineframework-runtime-api</artifactId>
+                <version>${restaurant.contracts.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pipelineframework</groupId><artifactId>pipelineframework-runtime-core</artifactId>
+                <version>${restaurant.contracts.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pipelineframework</groupId><artifactId>pipelineframework-runtime-protocol</artifactId>
+                <version>${restaurant.contracts.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pipelineframework</groupId><artifactId>pipelineframework-runtime-serialization</artifactId>
+                <version>${restaurant.contracts.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pipelineframework</groupId><artifactId>pipelineframework-runtime-spi</artifactId>
+                <version>${restaurant.contracts.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pipelineframework</groupId><artifactId>pipelineframework-semantic-model</artifactId>
+                <version>${restaurant.contracts.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pipelineframework</groupId><artifactId>representation-provider-api</artifactId>
+                <version>${restaurant.contracts.version}</version>
+            </dependency>
             <!-- Quarkus BOM -->
             <dependency>
                 <groupId>${quarkus.platform.group-id}</groupId>
