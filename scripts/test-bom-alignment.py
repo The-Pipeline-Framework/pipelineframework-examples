@@ -34,6 +34,10 @@ def local_artifact(group, artifact, version, packaging="jar", body=""):
 
 def main():
     parent = ET.parse(ROOT / "pom.xml").getroot()
+    contracts_versions = parent.findall("m:properties/m:pipelineframework.contracts.version", NS)
+    assert len(contracts_versions) == 1 and (contracts_versions[0].text or "").strip(), (
+        "examples root POM must declare pipelineframework.contracts.version exactly once"
+    )
     imports = parent.findall("m:dependencyManagement/m:dependencies/m:dependency", NS)
     bom = [dependency for dependency in imports
            if dependency.findtext("m:artifactId", namespaces=NS) == "pipelineframework-bom"]
