@@ -3,6 +3,13 @@ set -euo pipefail
 
 proof_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=$(cd "$proof_dir/../../.." && pwd)
+packaged_ingress=${TPF_PACKAGED_INGRESS:-0}
+for arg in "$@"; do
+  case "$arg" in
+    --packaged-ingress) packaged_ingress=1 ;;
+    *) echo "Unknown argument: $arg" >&2; exit 2 ;;
+  esac
+done
 packages=${TPF_NATIVE_HOST_PACKAGES:?Set TPF_NATIVE_HOST_PACKAGES to the verified native candidate directory}
 resolved_set=${TPF_RESOLVED_SET:?Set TPF_RESOLVED_SET to the immutable Maven compatibility set}
 python=${TPF_PYTHON:-python3.14}
@@ -116,7 +123,8 @@ for ((attempt=0; attempt<30; attempt++)); do
   if curl --silent --max-time 2 --output /dev/null "$endpoint"; then break; fi
   sleep 1
 done
-if [[ "${TPF_PACKAGED_INGRESS:-0}" == 1 ]]; then
+if [[ "$packaged_ingress" == 1 ]]; then
+  "$python" -B -m unittest discover -s "$proof_dir" -p "test_*.py" -v
   "$python" -B "$proof_dir/run_packaged_ingress.py" "$work/pins.json" "$endpoint" \
     "$runtime_version" "$repo/mvnw" "${maven_args[@]}"
 else

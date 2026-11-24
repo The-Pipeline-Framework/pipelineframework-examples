@@ -54,7 +54,7 @@ final class NativeWorkerReleaseConformance {
         Path generated = Path.of(args[1]);
         bundle = Path.of(args[2]);
         work = Files.createDirectory(Path.of(args[4]));
-        endpoint = URI.create(args.length == 6 ? args[5] : "https://worker.example");
+        endpoint = URI.create(args.length >= 6 ? args[5] : "https://worker.example");
         carrier = generated.resolve("compiled-truth.zip");
         metadata = Files.createDirectory(work.resolve("metadata"));
         Files.copy(generated.resolve("pipeline-contract.json"), metadata.resolve("pipeline-contract.json"));
@@ -67,12 +67,14 @@ final class NativeWorkerReleaseConformance {
 
     public static void main(String[] args) throws Exception {
         var proof = new NativeWorkerReleaseConformance(args);
-        var evidence = args.length == 6 ? proof.prepareHosted() : proof.exercise(Path.of(args[3]));
+        var evidence = args.length >= 6
+            ? proof.prepareHosted(args.length >= 7 ? args[6] : "v1")
+            : proof.exercise(Path.of(args[3]));
         System.out.println(JSON.writeValueAsString(evidence));
     }
 
-    private ObjectNode prepareHosted() throws IOException {
-        Release release = produce("v1", "hosted");
+    private ObjectNode prepareHosted(String version) throws IOException {
+        Release release = produce(version, "hosted");
         var binding = prepare(release, "hosted");
         var command = commandFor(release);
         var attempt = binding.pin(command);

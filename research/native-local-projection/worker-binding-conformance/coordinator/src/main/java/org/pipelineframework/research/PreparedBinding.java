@@ -5,10 +5,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
 
-import io.quarkus.runtime.Startup;
+import io.quarkus.arc.lookup.LookupIfProperty;
+import io.quarkus.runtime.StartupEvent;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.pipelineframework.config.pipeline.PipelineJson;
 import org.pipelineframework.deployment.release.CredentialResolver;
@@ -20,9 +23,15 @@ import org.pipelineframework.orchestrator.release.PipelineContractDescriptor;
 /** Supplies trusted deployment inputs to the real coordinator. This fixture owns no execution policy. */
 @ApplicationScoped
 public class PreparedBinding {
+    void prepareAtStartup(@Observes StartupEvent ignored, Instance<NativeWorkerReleaseBinding> bindings) {
+        if (bindings.isResolvable()) {
+            bindings.get();
+        }
+    }
+
     @Produces
-    @Startup
     @Singleton
+    @LookupIfProperty(name = "proof.binding.enabled", stringValue = "true", lookupIfMissing = true)
     NativeWorkerReleaseBinding binding(@ConfigProperty(name = "proof.launch") Path launch) throws IOException {
         var json = PipelineJson.mapper();
         var input = json.readTree(Files.readAllBytes(launch));
