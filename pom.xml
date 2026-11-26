@@ -134,6 +134,7 @@
         <module>spring-smoke-tests</module>
         <module>spring-blocking-smoke-tests</module>
         <module>aws-durable-proof</module>
+        <module>polyglot-proof</module>
     </modules>
 
     <dependencyManagement>
