@@ -1,2 +1,0 @@
-# Standards-based JSON Schema draft 2020-12 validation, for this conformance suite only.
-jsonschema==4.25.1
