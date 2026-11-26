@@ -46,21 +46,38 @@ class PolyglotDynamoEquivalenceIT {
                     target, yaml, genDir, workDir.resolve("dynamo-state"),
                     dynamoHelper::createExecutionStateStore, "dynamo-" + label);
 
-                // 3. Assert 100% behavioral & payload equivalence
+                // 3. Assert expected semantics on each store independently before comparing equivalence
+                assertExpectedSnapshot(label + " disk", diskSnap);
+                assertExpectedSnapshot(label + " dynamo", dynamoSnap);
+
+                // 4. Assert 100% behavioral & payload equivalence
                 assertEquals(diskSnap.okStatus(), dynamoSnap.okStatus(), label + " OK status");
                 assertEquals(diskSnap.okVersion(), dynamoSnap.okVersion(), label + " OK version");
                 assertEquals(diskSnap.okCanonicalJson(), dynamoSnap.okCanonicalJson(),
-                    label + " canonical JSON (29-digit decimal + int64) must match between disk and DynamoDB");
+                    label + " canonical JSON (exact decimal + int64) must match between disk and DynamoDB");
 
                 assertEquals(diskSnap.rejectedStatus(), dynamoSnap.rejectedStatus(), label + " rejection status");
                 assertEquals(diskSnap.rejectedStepIndex(), dynamoSnap.rejectedStepIndex(), label + " failedStepIndex");
                 assertEquals(diskSnap.rejectedCommandId(), dynamoSnap.rejectedCommandId(), label + " failedCommandId");
+                assertEquals(diskSnap.rejectedAttempt(), dynamoSnap.rejectedAttempt(), label + " rejection attempt");
 
                 assertEquals(diskSnap.retryBeforeStatus(), dynamoSnap.retryBeforeStatus(), label + " WAIT_RETRY");
                 assertEquals(diskSnap.retryAfterStatus(), dynamoSnap.retryAfterStatus(), label + " retry SUCCEEDED");
                 assertEquals(diskSnap.retryCanonicalJson(), dynamoSnap.retryCanonicalJson(), label + " retry JSON");
             }
         }
+    }
+
+    private static void assertExpectedSnapshot(String label, StoreSnapshot snap) {
+        assertEquals(ExecutionStatus.SUCCEEDED, snap.okStatus(), label + " OK status");
+        assertEquals(ExecutionStatus.FAILED, snap.rejectedStatus(), label + " rejection must be terminal FAILED");
+        assertEquals(0, snap.rejectedStepIndex(), label + " failedStepIndex");
+        assertEquals("cmd-validate-invoice", snap.rejectedCommandId(), label + " failedCommandId");
+        assertEquals(0, snap.rejectedAttempt(), label + " BUSINESS_REJECTION must not retry");
+        assertTrue(snap.rejectedErrorDetail().contains("INVALID_INVOICE"),
+            label + " rejection error must include INVALID_INVOICE, got: " + snap.rejectedErrorDetail());
+        assertEquals(ExecutionStatus.WAIT_RETRY, snap.retryBeforeStatus(), label + " transient must pause in WAIT_RETRY");
+        assertEquals(ExecutionStatus.SUCCEEDED, snap.retryAfterStatus(), label + " sweep retry must reach SUCCEEDED");
     }
 
     private static StoreSnapshot runWithStore(
@@ -97,6 +114,7 @@ class PolyglotDynamoEquivalenceIT {
             return new StoreSnapshot(
                 ok.status(), ok.version(), okJson,
                 rejected.status(), rejected.failedStepIndex(), rejected.failedCommandId().orElse(""),
+                rejected.attempt(), PolyglotCrossLanguageProofTest.errorDetail(rejected),
                 retryBefore.status(), retryAfter.status(), retryJson);
         }
     }
@@ -108,6 +126,8 @@ class PolyglotDynamoEquivalenceIT {
         ExecutionStatus rejectedStatus,
         int rejectedStepIndex,
         String rejectedCommandId,
+        int rejectedAttempt,
+        String rejectedErrorDetail,
         ExecutionStatus retryBeforeStatus,
         ExecutionStatus retryAfterStatus,
         String retryCanonicalJson

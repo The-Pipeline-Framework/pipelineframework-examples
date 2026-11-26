@@ -160,7 +160,12 @@ public final class PolyglotHostProcess implements AutoCloseable {
         try {
             return readyFuture.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
-            throw new AssertionError("Timed out waiting for foreign host READY after " + timeout);
+            String captured;
+            synchronized (outputLog) {
+                captured = outputLog.toString();
+            }
+            throw new AssertionError("Timed out waiting for foreign host READY after " + timeout
+                + ". Captured output:\n" + captured);
         } catch (ExecutionException e) {
             throw new AssertionError("Foreign host failed to start", e.getCause());
         }

@@ -58,8 +58,9 @@ import org.pipelineframework.orchestrator.JsonTransitionPayloadCodec;
 import org.pipelineframework.orchestrator.SerializedTransitionPayload;
 
 /**
- * Crash-safe disk-backed stores (fsync + atomic rename) modeling {@code tpf dev} local durability
- * for restart recovery and DynamoDB equivalence verification.
+ * Disk-backed proof stores (temp-file {@code fsync}, {@code ATOMIC_MOVE}, and best-effort parent
+ * directory sync where supported by the OS) modeling {@code tpf dev} local durability for restart
+ * recovery and DynamoDB equivalence verification.
  */
 public final class DiskProofStores {
 
@@ -135,6 +136,13 @@ public final class DiskProofStores {
                     ch.force(true);
                 }
                 Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                if (parent != null) {
+                    try (FileChannel dir = FileChannel.open(parent, StandardOpenOption.READ)) {
+                        dir.force(true);
+                    } catch (IOException | UnsupportedOperationException ignored) {
+                        // Best-effort directory sync: not all platforms/filesystems allow opening a directory channel.
+                    }
+                }
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -551,9 +559,11 @@ public final class DiskProofStores {
         public Uni<AwaitUnitRecord> importRecord(AwaitUnitRecord record) {
             return Uni.createFrom().item(() -> {
                 synchronized (lock) {
-                    units.putIfAbsent(record.tenantId() + "\0" + record.unitId(), record);
+                    String key = record.tenantId() + "\0" + record.unitId();
+                    AwaitUnitRecord existing = units.putIfAbsent(key, record);
+                    if (existing != null) return existing;
                     flush();
-                    return units.get(record.tenantId() + "\0" + record.unitId());
+                    return record;
                 }
             });
         }
@@ -722,10 +732,17 @@ public final class DiskProofStores {
         public Uni<AwaitInteractionRecord> importRecord(AwaitInteractionRecord record) {
             return Uni.createFrom().item(() -> {
                 synchronized (lock) {
-                    interactions.putIfAbsent(record.tenantId() + "\0" + record.interactionId(), record);
-                    if (record.correlationId() != null) idByCorr.put(record.tenantId() + "\0" + record.correlationId(), record.interactionId());
+                    String key = record.tenantId() + "\0" + record.interactionId();
+                    AwaitInteractionRecord existing = interactions.putIfAbsent(key, record);
+                    if (existing != null) return existing;
+                    if (record.idempotencyKey() != null) {
+                        idByIdem.put(record.tenantId() + "\0" + record.stepId() + "\0" + record.idempotencyKey(), record.interactionId());
+                    }
+                    if (record.correlationId() != null) {
+                        idByCorr.put(record.tenantId() + "\0" + record.correlationId(), record.interactionId());
+                    }
                     flush();
-                    return interactions.get(record.tenantId() + "\0" + record.interactionId());
+                    return record;
                 }
             });
         }

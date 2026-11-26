@@ -23,6 +23,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -75,6 +76,8 @@ import org.pipelineframework.connector.ResolvedConnection;
 import org.pipelineframework.connector.polyglot.PolyglotConnectorConnection;
 import org.pipelineframework.connector.polyglot.PolyglotConnectorProvider;
 import org.pipelineframework.connector.polyglot.PolyglotConnectorSpec;
+import org.pipelineframework.execution.PipelineExecutionContext;
+import org.pipelineframework.execution.PipelineExecutionContextHolder;
 import org.pipelineframework.invocation.PipelineInvocationRuntime;
 import org.pipelineframework.objectpublish.ObjectPublishCompletionService;
 import org.pipelineframework.orchestrator.CanonicalFunctionHostManyToOneStep;
@@ -147,6 +150,8 @@ public final class PolyglotProofHarness implements AutoCloseable {
     private final Queue<ExecutionWorkItem> workQueue = new ConcurrentLinkedQueue<>();
     private final Queue<DeadLetterEnvelope> deadLetters = new ConcurrentLinkedQueue<>();
     private final Map<Integer, String> awaitOutputTypes = new LinkedHashMap<>();
+    private final Map<String, QueryStepDescriptor> queryDescriptors = new LinkedHashMap<>();
+    private final Map<String, CommandDescriptor> commandDescriptors = new LinkedHashMap<>();
     private final ExecutorService connectorExecutor;
     private final Optional<ConnectorBindingRegistry> bindingRegistry;
     private final Optional<ConnectorRuntimeContext> connectorContext;
@@ -329,6 +334,12 @@ public final class PolyglotProofHarness implements AutoCloseable {
     }
 
     public ExecutionRecord<Object, Object> submitAndDrain(String tenantId, String executionKey, String payloadJson) {
+        ExecutionRecord<Object, Object> admitted = admitWithoutDrain(tenantId, executionKey, payloadJson);
+        drainQueue();
+        return getExecution(tenantId, admitted.executionId());
+    }
+
+    public ExecutionRecord<Object, Object> admitWithoutDrain(String tenantId, String executionKey, String payloadJson) {
         String inputType = template.steps().getFirst().inputTypeName();
         TypedDurablePayload input = new TypedDurablePayload(
             inputType,
@@ -338,7 +349,6 @@ public final class PolyglotProofHarness implements AutoCloseable {
             JsonDurablePayloadCodec.ENCODING_VERSION,
             payloadJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         var accepted = coordinator.executePipelineAsync(input, tenantId, executionKey, false).await().atMost(TIMEOUT);
-        drainQueue();
         return getExecution(tenantId, accepted.executionId());
     }
 
@@ -346,13 +356,17 @@ public final class PolyglotProofHarness implements AutoCloseable {
         return stateStore.getExecution(tenantId, executionId).await().atMost(TIMEOUT).orElseThrow();
     }
 
-    public JsonNode getResultJson(String tenantId, String executionId) throws IOException {
-        Object raw = coordinator.getExecutionResultPayload(tenantId, executionId).await().atMost(TIMEOUT);
+    public JsonNode decodeTypedPayloadJson(Object raw) throws IOException {
         Object decoded = raw instanceof SerializedTransitionPayload s
             ? coordinator.transitionPayloadCodec.decode(s)
             : raw;
         TypedDurablePayload typed = (TypedDurablePayload) decoded;
         return JSON.readTree(typed.payload());
+    }
+
+    public JsonNode getResultJson(String tenantId, String executionId) throws IOException {
+        Object raw = coordinator.getExecutionResultPayload(tenantId, executionId).await().atMost(TIMEOUT);
+        return decodeTypedPayloadJson(raw);
     }
 
     public String getResultCanonicalString(String tenantId, String executionId) {
@@ -405,6 +419,26 @@ public final class PolyglotProofHarness implements AutoCloseable {
 
     public Optional<QueryStepSupport> querySupport() {
         return querySupport;
+    }
+
+    public QueryStepDescriptor queryDescriptor(String stepId) {
+        return Objects.requireNonNull(queryDescriptors.get(stepId), "Missing query descriptor: " + stepId);
+    }
+
+    public CommandDescriptor commandDescriptor(String stepId) {
+        return Objects.requireNonNull(commandDescriptors.get(stepId), "Missing command descriptor: " + stepId);
+    }
+
+    public <T> T withExecutionContext(String tenantId, String executionId, int stepIndex, Supplier<T> action) {
+        Optional<PipelineExecutionContext> previous = PipelineExecutionContextHolder.get();
+        PipelineExecutionContextHolder.set(new PipelineExecutionContext(
+            tenantId, executionId, contract.pipelineId(), contract.contractVersion(), "proof-1",
+            stepIndex, Optional.empty(), Optional.empty()));
+        try {
+            return action.get();
+        } finally {
+            previous.ifPresentOrElse(PipelineExecutionContextHolder::set, PipelineExecutionContextHolder::clear);
+        }
     }
 
     public void drainQueue() {
@@ -555,6 +589,7 @@ public final class PolyglotProofHarness implements AutoCloseable {
                             new ConnectorOperationIdentity(PolyglotConnectorProvider.PROVIDER_ID, sel.operation(),
                                 ConnectorOperationKind.QUERY, major), 1),
                         Map.of());
+                    queryDescriptors.put(stepId, desc);
                     instance = new ProofQueryStep(connHolder.querySupport().orElseThrow(), desc,
                         outputType, outputFp, catalogFingerprint);
                 } else {
@@ -571,6 +606,7 @@ public final class PolyglotProofHarness implements AutoCloseable {
                                 Optional.of(CommandMachineConfirmation.PROVIDER_ACKNOWLEDGED), false)),
                         JsonNode.class.getName(), JsonNode.class.getName(),
                         stepId + "-id", CommandDuplicatePolicy.RETURN_RECORDED, Map.of());
+                    commandDescriptors.put(stepId, desc);
                     instance = new ProofCommandStep(connHolder.commandSupport().orElseThrow(), desc,
                         stepId, outputType, outputFp, catalogFingerprint);
                 }
