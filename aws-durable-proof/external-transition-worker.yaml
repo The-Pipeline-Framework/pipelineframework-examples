@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Standalone TPF AWS Durable transition Lambda for an existing SQS transition queue pair
+
+Parameters:
+  CodeBucket:
+    Type: String
+  CodeKey:
+    Type: String
+  CodeObjectVersion:
+    Type: String
+  CodeSha256:
+    Type: String
+    Description: Base64 SHA-256 of the Lambda ZIP
+  PublicationId:
+    Type: String
+    Description: Unique revision of the function code and configuration
+  WorkerRoleArn:
+    Type: String
+    Description: Existing worker execution role in the function account
+  RequestQueueArn:
+    Type: String
+    Description: Existing transition request queue in the same Region
+  ResponseQueueUrl:
+    Type: String
+    Description: Existing transition response queue URL
+  WorkerSigningSecretArn:
+    Type: String
+    Description: Worker signing secret in the function account
+  WorkerSigningSecretVersion:
+    Type: String
+    Description: Immutable Secrets Manager version ID for the worker signing key
+  PipelineId:
+    Type: String
+  ReleaseVersion:
+    Type: String
+  PayloadPackagePrefix:
+    Type: String
+    Description: Java package prefix including the final dot
+
+Resources:
+  TransitionWorker:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: java21
+      Handler: io.quarkus.amazon.lambda.runtime.QuarkusStreamHandler::handleRequest
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref CodeKey
+        S3ObjectVersion: !Ref CodeObjectVersion
+      Role: !Ref WorkerRoleArn
+      MemorySize: 1536
+      Timeout: 60
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          QUARKUS_LAMBDA_HANDLER: aws-durable-transition-worker
+          QUARKUS_HTTP_HOST_ENABLED: 'false'
+          QUARKUS_GRPC_SERVER_USE_SEPARATE_SERVER: 'false'
+          TPF_AWS_DURABLE_TRANSITION_WORKER_ONLY: 'true'
+          PIPELINE_ORCHESTRATOR_MODE: SYNC
+          PIPELINE_ORCHESTRATOR_PROCESS_LOOPS_DISABLED: 'true'
+          PIPELINE_ORCHESTRATOR_PIPELINE_ID: !Ref PipelineId
+          PIPELINE_ORCHESTRATOR_RELEASE_VERSION: !Ref ReleaseVersion
+          PIPELINE_ORCHESTRATOR_SQS_REGION: !Ref AWS::Region
+          PIPELINE_ORCHESTRATOR_WORKER_ALLOWED_PAYLOAD_PREFIXES: !Ref PayloadPackagePrefix
+          PIPELINE_ORCHESTRATOR_WORKER_SQS_RESPONSE_QUEUE_URL: !Ref ResponseQueueUrl
+          PIPELINE_ORCHESTRATOR_WORKER_SQS_SHARED_SECRET_REF: 'env:TRANSITION_SIGNING_KEY'
+          TRANSITION_SIGNING_KEY: !Sub '{{resolve:secretsmanager:${WorkerSigningSecretArn}:SecretString:::${WorkerSigningSecretVersion}}}'
+
+  TransitionWorkerVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref TransitionWorker
+      CodeSha256: !Ref CodeSha256
+      Description: !Ref PublicationId
+
+  TransitionWorkerSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref TransitionWorkerVersion
+      EventSourceArn: !Ref RequestQueueArn
+      BatchSize: 1
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      Enabled: true
+
+Outputs:
+  WorkerVersionArn:
+    Value: !Ref TransitionWorkerVersion
+  SourceMappingId:
+    Value: !Ref TransitionWorkerSource
