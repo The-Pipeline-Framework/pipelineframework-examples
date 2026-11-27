@@ -1,0 +1,71 @@
+version: 3
+appName: Tier3DownstreamSettlementFlow
+basePackage: com.example.tier3.settlement
+transport: LOCAL
+platform: COMPUTE
+connectors:
+  settlement-http:
+    provider: http.client
+    version: 1
+    config:
+      baseUri: http://127.0.0.1:0/api
+      connection: settlement-api
+      bearerTokenSecret: settlement-api-token
+      operations:
+        settlement.post:
+          method: POST
+          path: /settlements
+          idempotencyHeader: Idempotency-Key
+          successStatus: "201"
+types:
+  CheckpointDispatch:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: accountId
+        type: string
+      - name: amount
+        type: decimal
+      - name: branch
+        type: string
+      - name: channel
+        type: string
+      - name: score
+        type: int32
+  SettlementInstruction:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: accountId
+        type: string
+      - name: amount
+        type: decimal
+      - name: branch
+        type: string
+      - name: channel
+        type: string
+      - name: instructionRef
+        type: string
+  SettlementConfirmation:
+    fields:
+      - name: settlementId
+        type: string
+      - name: orderSeq
+        type: int64
+      - name: branch
+        type: string
+      - name: settledAmount
+        type: decimal
+steps:
+  - name: Format Settlement Instruction
+    cardinality: ONE_TO_ONE
+    input: CheckpointDispatch
+    output: SettlementInstruction
+  - name: Post Settlement
+    kind: command
+    using: settlement-http
+    operation: settlement.post
+    operationVersion: 1
+    cardinality: ONE_TO_ONE
+    input: SettlementInstruction
+    output: SettlementConfirmation

@@ -1,0 +1,126 @@
+version: 3
+appName: Tier3MixedIngressFlow
+basePackage: com.example.tier3.ingress
+transport: LOCAL
+platform: COMPUTE
+connectors:
+  risk-http:
+    provider: http.client
+    version: 1
+    config:
+      baseUri: http://127.0.0.1:0/api
+      connection: risk-api
+      bearerTokenSecret: risk-api-token
+      operations:
+        risk.assess:
+          method: GET
+          path: /risk/{accountId}
+          queryParams:
+            - orderSeq
+            - amount
+            - expedited
+          successStatus: "200"
+types:
+  PaymentOrder:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: accountId
+        type: string
+      - name: amount
+        type: decimal
+      - name: expedited
+        type: bool
+  RiskAssessment:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: accountId
+        type: string
+      - name: amount
+        type: decimal
+      - name: expedited
+        type: bool
+      - name: riskTier
+        type: string
+  ScoredPayment:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: accountId
+        type: string
+      - name: amount
+        type: decimal
+      - name: expedited
+        type: bool
+      - name: riskTier
+        type: string
+      - name: score
+        type: int32
+  ExpressSettlement:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: accountId
+        type: string
+      - name: amount
+        type: decimal
+      - name: channel
+        type: string
+      - name: score
+        type: int32
+  StandardSettlement:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: accountId
+        type: string
+      - name: amount
+        type: decimal
+      - name: channel
+        type: string
+      - name: score
+        type: int32
+  RoutedSettlement:
+    variants:
+      express: ExpressSettlement
+      standard: StandardSettlement
+  CheckpointDispatch:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: accountId
+        type: string
+      - name: amount
+        type: decimal
+      - name: branch
+        type: string
+      - name: channel
+        type: string
+      - name: score
+        type: int32
+steps:
+  - name: Assess Risk
+    kind: query
+    using: risk-http
+    operation: risk.assess
+    operationVersion: 1
+    cardinality: ONE_TO_ONE
+    input: PaymentOrder
+    output: RiskAssessment
+  - name: Score Payment
+    cardinality: ONE_TO_ONE
+    input: RiskAssessment
+    output: ScoredPayment
+  - name: Audit Scored Payment
+    cardinality: SIDE_EFFECT
+    input: ScoredPayment
+    output: ScoredPayment
+  - name: Route Settlement
+    cardinality: ONE_TO_ONE
+    input: ScoredPayment
+    output: RoutedSettlement
+  - name: Prepare Checkpoint Dispatch
+    cardinality: ONE_TO_ONE
+    input: RoutedSettlement
+    output: CheckpointDispatch
