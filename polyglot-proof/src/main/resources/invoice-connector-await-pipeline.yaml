@@ -1,0 +1,100 @@
+version: 3
+appName: InvoiceConnectorAwaitProof
+basePackage: com.example.polyglot.connector
+transport: LOCAL
+platform: COMPUTE
+connectors:
+  fx-api:
+    provider: polyglot.connector
+    version: 1
+    config:
+      connection: polyglot-connector-host
+  ledger-host:
+    provider: polyglot.connector
+    version: 1
+    config:
+      connection: polyglot-connector-host
+      reconciliationSupported: true
+      receiptReferenceKind: ledger.entry.id
+types:
+  TransferOrder:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: currency
+        type: string
+      - name: amount
+        type: decimal
+  FxRequest:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: currency
+        type: string
+      - name: amount
+        type: decimal
+  FxQuote:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: convertedAmount
+        type: decimal
+      - name: rateSource
+        type: string
+  LedgerReceipt:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: entryId
+        type: string
+      - name: postedAmount
+        type: decimal
+  ApprovalDecision:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: entryId
+        type: string
+      - name: postedAmount
+        type: decimal
+      - name: approver
+        type: string
+  FinalNotice:
+    fields:
+      - name: orderSeq
+        type: int64
+      - name: entryId
+        type: string
+      - name: settledAmount
+        type: decimal
+      - name: approver
+        type: string
+steps:
+  - name: Prepare Transfer
+    cardinality: ONE_TO_ONE
+    input: TransferOrder
+    output: FxRequest
+  - name: Lookup Fx Quote
+    kind: query
+    using: fx-api
+    operation: fx.quote
+    operationVersion: 1
+    cardinality: ONE_TO_ONE
+    input: FxRequest
+    output: FxQuote
+  - name: Post Ledger Entry
+    kind: command
+    using: ledger-host
+    operation: ledger.post
+    operationVersion: 1
+    cardinality: ONE_TO_ONE
+    input: FxQuote
+    output: LedgerReceipt
+  - name: Await Signoff
+    cardinality: ONE_TO_ONE
+    input: LedgerReceipt
+    output: ApprovalDecision
+  - name: Finalize Notice
+    cardinality: ONE_TO_ONE
+    input: ApprovalDecision
+    output: FinalNotice

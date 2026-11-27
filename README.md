@@ -13,6 +13,7 @@ of their own.
 - [Hosted Echo](hosted-echo/README.md) — a typed Command with signed Await and two locally verified Release packages
 - `local-command-proof` — replay-safe local Command execution
 - `openapi-capability-proof` — imported OpenAPI capabilities and callback jobs
+- [Polyglot Proof](polyglot-proof/README.md) — ADR-0092 cross-language Node/TypeScript & Python proof across canonical multi-field streaming (`1:1`/`1:N`/`N:1`), Tier-2 custom connectors, crash-safe Await recovery, and DynamoDB equivalence
 - `rag-composition-proof` — RAG composition across embedding, vector-store, and LLM connectors
 - `restaurant-approval` — a larger multi-module approval pipeline reference
 - `stdio-object-demo` — object admission and publication over a CLI boundary

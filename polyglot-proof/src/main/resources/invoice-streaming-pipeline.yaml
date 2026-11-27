@@ -1,0 +1,78 @@
+version: 3
+appName: InvoiceStreamingProof
+basePackage: com.example.polyglot.streaming
+transport: LOCAL
+platform: COMPUTE
+types:
+  CurrencyCode:
+    wraps: string
+    allowedValues:
+      - USD
+      - EUR
+  InvoiceLineItem:
+    fields:
+      - name: sku
+        type: string
+      - name: qty
+        type: int32
+      - name: unitPrice
+        type: decimal
+  InvoiceBatch:
+    fields:
+      - name: batchSeq
+        type: int64
+      - name: batchId
+        type: uuid
+      - name: submittedAt
+        type: timestamp
+      - name: currency
+        type: CurrencyCode
+      - name: expedited
+        type: bool
+      - name: note
+        type: string
+        presence: OPTIONAL
+        nullability: NULLABLE
+      - name: mode
+        type: string
+      - name: items
+        repeated: InvoiceLineItem
+  ValidatedBatch:
+    fields:
+      - name: batchSeq
+        type: int64
+      - name: currency
+        type: CurrencyCode
+      - name: expedited
+        type: bool
+      - name: items
+        repeated: InvoiceLineItem
+  PricedLine:
+    fields:
+      - name: batchSeq
+        type: int64
+      - name: sku
+        type: string
+      - name: lineTotal
+        type: decimal
+  SettlementSummary:
+    fields:
+      - name: batchSeq
+        type: int64
+      - name: lineCount
+        type: int32
+      - name: grandTotal
+        type: decimal
+steps:
+  - name: Validate Invoice
+    cardinality: ONE_TO_ONE
+    input: InvoiceBatch
+    output: ValidatedBatch
+  - name: Split Line Items
+    cardinality: ONE_TO_MANY
+    input: ValidatedBatch
+    output: PricedLine
+  - name: Aggregate Settlement
+    cardinality: MANY_TO_ONE
+    input: PricedLine
+    output: SettlementSummary
