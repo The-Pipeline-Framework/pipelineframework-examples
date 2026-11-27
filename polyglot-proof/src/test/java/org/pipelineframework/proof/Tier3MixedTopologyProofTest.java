@@ -52,7 +52,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *       deterministically across Node and Python</li>
  *   <li>Cross-pipeline {@link CheckpointPublicationService} handoff from upstream ingress pipeline
  *       to an independently owned downstream settlement pipeline with exact {@code int64 > 2^53}
- *       and 29-digit {@code decimal} fidelity</li>
+ *       and {@code decimal} fidelity across the JVM {@code HttpConnector} boundary</li>
  * </ul>
  */
 class Tier3MixedTopologyProofTest {
@@ -71,10 +71,10 @@ class Tier3MixedTopologyProofTest {
         PolyglotHostProcess.requirePython3();
 
         AtomicInteger riskCalls = new AtomicInteger();
-        AtomicReference<String> riskAuthSeen = new AtomicReference<>("");
+        List<String> riskAuthsSeen = new CopyOnWriteArrayList<>();
         AtomicInteger settlementCalls = new AtomicInteger();
-        AtomicReference<String> settlementAuthSeen = new AtomicReference<>("");
-        AtomicReference<String> settlementIdemKeySeen = new AtomicReference<>("");
+        List<String> settlementAuthsSeen = new CopyOnWriteArrayList<>();
+        List<String> settlementIdemKeysSeen = new CopyOnWriteArrayList<>();
 
         SSLContext loopbackTls = createLoopbackSslContext(temp);
         HttpsServer jvmUpstream = HttpsServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -82,7 +82,12 @@ class Tier3MixedTopologyProofTest {
         jvmUpstream.createContext("/api/risk/", ex -> {
             riskCalls.incrementAndGet();
             String auth = ex.getRequestHeaders().getFirst("Authorization");
-            riskAuthSeen.set(auth == null ? "" : auth);
+            riskAuthsSeen.add(auth == null ? "" : auth);
+            if (!("Bearer " + RISK_API_TOKEN).equals(auth)) {
+                ex.sendResponseHeaders(401, -1);
+                ex.close();
+                return;
+            }
             String accountId = ex.getRequestURI().getPath().substring("/api/risk/".length());
             Map<String, String> q = parseQuery(ex.getRequestURI().getRawQuery());
             String riskTier = accountId.startsWith("vip-") ? "LOW" : "MEDIUM";
@@ -101,9 +106,19 @@ class Tier3MixedTopologyProofTest {
         jvmUpstream.createContext("/api/settlements", ex -> {
             settlementCalls.incrementAndGet();
             String auth = ex.getRequestHeaders().getFirst("Authorization");
-            settlementAuthSeen.set(auth == null ? "" : auth);
+            settlementAuthsSeen.add(auth == null ? "" : auth);
             String idem = ex.getRequestHeaders().getFirst("Idempotency-Key");
-            settlementIdemKeySeen.set(idem == null ? "" : idem);
+            settlementIdemKeysSeen.add(idem == null ? "" : idem);
+            if (!("Bearer " + SETTLEMENT_API_TOKEN).equals(auth)) {
+                ex.sendResponseHeaders(401, -1);
+                ex.close();
+                return;
+            }
+            if (idem == null || idem.isBlank()) {
+                ex.sendResponseHeaders(422, -1);
+                ex.close();
+                return;
+            }
             JsonNode req = PolyglotProofHarness.JSON.readTree(ex.getRequestBody().readAllBytes());
             String body = "{\"settlementId\":\"SET-" + req.path("branch").asText() + "-" + req.path("orderSeq").asText()
                 + "\",\"orderSeq\":" + req.path("orderSeq").asText()
@@ -133,10 +148,11 @@ class Tier3MixedTopologyProofTest {
             Path nodeAuditLog = temp.resolve("node-side-effect-audit.jsonl");
             Path nodeLeakFile = temp.resolve("node-leak.txt");
             Path pyLeakFile = temp.resolve("py-leak.txt");
+            Path pyDownstreamLeakFile = temp.resolve("py-downstream-leak.txt");
 
             try (PolyglotHostProcess nodeHost = startNodeIngressHost(nodeIngressGen, nodeAuditLog, nodeLeakFile);
                  PolyglotHostProcess pyIngressHost = startPythonIngressHost(pyIngressGen, pyLeakFile);
-                 PolyglotHostProcess pyDownstreamHost = startPythonDownstreamHost(pyDownstreamGen)) {
+                 PolyglotHostProcess pyDownstreamHost = startPythonDownstreamHost(pyDownstreamGen, pyDownstreamLeakFile)) {
 
                 Map<String, String> connectorSecrets = Map.of(
                     "risk-api-token", RISK_API_TOKEN,
@@ -258,16 +274,23 @@ class Tier3MixedTopologyProofTest {
                         assertTrue(auditLines.get(0).contains(EXACT_INT64) && auditLines.get(0).contains("\"score\":95"));
                         assertTrue(auditLines.get(1).contains("\"accountId\":\"std-200\"") && auditLines.get(1).contains("\"score\":60"));
 
-                        // Verify JVM ecosystem HttpConnector received host-owned secrets + Idempotency-Key
+                        // Verify JVM ecosystem HttpConnector received host-owned secrets + Idempotency-Key on EVERY request
                         assertEquals(2, riskCalls.get());
-                        assertEquals("Bearer " + RISK_API_TOKEN, riskAuthSeen.get());
+                        assertEquals(List.of("Bearer " + RISK_API_TOKEN, "Bearer " + RISK_API_TOKEN), riskAuthsSeen);
                         assertEquals(2, settlementCalls.get());
-                        assertEquals("Bearer " + SETTLEMENT_API_TOKEN, settlementAuthSeen.get());
-                        assertFalse(settlementIdemKeySeen.get().isBlank(), "JVM HttpConnector Command must send Idempotency-Key");
+                        assertEquals(
+                            List.of("Bearer " + SETTLEMENT_API_TOKEN, "Bearer " + SETTLEMENT_API_TOKEN),
+                            settlementAuthsSeen);
+                        assertEquals(2, settlementIdemKeysSeen.size());
+                        assertTrue(settlementIdemKeysSeen.stream().allMatch(k -> !k.isBlank()),
+                            "Every JVM HttpConnector Command must send a non-blank Idempotency-Key");
+                        assertNotEquals(settlementIdemKeysSeen.get(0), settlementIdemKeysSeen.get(1),
+                            "Distinct commands must carry distinct Idempotency-Key headers");
 
-                        // Verify ZERO credential leakage to Node or Python hosts
+                        // Verify ZERO credential leakage (env, payload, or context) across all 3 foreign hosts
                         assertEquals("CLEAN", Files.readString(nodeLeakFile, StandardCharsets.UTF_8).trim());
                         assertEquals("CLEAN", Files.readString(pyLeakFile, StandardCharsets.UTF_8).trim());
+                        assertEquals("CLEAN", Files.readString(pyDownstreamLeakFile, StandardCharsets.UTF_8).trim());
                     }
                 }
             }
@@ -347,16 +370,18 @@ class Tier3MixedTopologyProofTest {
 
             const auditLog = process.env.AUDIT_LOG!;
             const leakFile = process.env.LEAK_FILE!;
-            const checkEnv = () => {
-              const serialized = JSON.stringify(process.env);
+            const checkIsolation = (input: unknown, ctx: unknown) => {
+              const serialized = JSON.stringify(
+                { env: process.env, input, ctx },
+                (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
               if (serialized.includes('%s') || serialized.includes('%s')) {
                 fs.writeFileSync(leakFile, 'LEAKED');
               }
             };
 
             const handlers: FunctionHandlers = {
-              async scorePayment(input) {
-                checkEnv();
+              async scorePayment(input, ctx) {
+                checkIsolation(input, ctx);
                 const score = input.riskTier === 'LOW' ? 95 : 60;
                 return {
                   orderSeq: input.orderSeq,
@@ -367,8 +392,8 @@ class Tier3MixedTopologyProofTest {
                   score,
                 };
               },
-              async auditScoredPayment(input) {
-                checkEnv();
+              async auditScoredPayment(input, ctx) {
+                checkIsolation(input, ctx);
                 fs.appendFileSync(auditLog, JSON.stringify({
                   orderSeq: input.orderSeq.toString(),
                   accountId: input.accountId,
@@ -417,8 +442,8 @@ class Tier3MixedTopologyProofTest {
             host.ThreadingHTTPServer.server_bind = _fast_bind
 
             leak_file = os.environ["LEAK_FILE"]
-            def check_env():
-                joined = " ".join(os.environ.values())
+            def check_isolation(inp, ctx):
+                joined = " ".join(os.environ.values()) + " " + repr(inp) + " " + repr(ctx)
                 if "%s" in joined or "%s" in joined:
                     with open(leak_file, "w", encoding="utf-8") as f:
                         f.write("LEAKED")
@@ -431,7 +456,7 @@ class Tier3MixedTopologyProofTest {
                     raise RuntimeError("Owned by Node host in mixed topology")
 
                 def route_settlement(self, inp: t.ScoredPayment, ctx: t.FunctionContext) -> t.RoutedSettlement:
-                    check_env()
+                    check_isolation(inp, ctx)
                     if inp.expedited and inp.riskTier == "LOW":
                         return t.RoutedSettlement_Express(
                             discriminator="express",
@@ -455,7 +480,7 @@ class Tier3MixedTopologyProofTest {
                     )
 
                 def prepare_checkpoint_dispatch(self, inp: t.RoutedSettlement, ctx: t.FunctionContext) -> t.CheckpointDispatch:
-                    check_env()
+                    check_isolation(inp, ctx)
                     branch = "EXPRESS" if inp.discriminator == "express" else "STANDARD"
                     val = inp.value
                     return t.CheckpointDispatch(
@@ -483,7 +508,8 @@ class Tier3MixedTopologyProofTest {
             Duration.ofSeconds(15));
     }
 
-    private static PolyglotHostProcess startPythonDownstreamHost(Path genDir) throws Exception {
+    private static PolyglotHostProcess startPythonDownstreamHost(Path genDir, Path leakFile) throws Exception {
+        Files.writeString(leakFile, "CLEAN", StandardCharsets.UTF_8);
         Path pkgDir = genDir.resolve("py_downstream_pkg");
         Files.createDirectories(pkgDir);
         Files.copy(genDir.resolve("types.py"), pkgDir.resolve("types.py"));
@@ -499,8 +525,16 @@ class Tier3MixedTopologyProofTest {
                 self.server_name, self.server_port = self.server_address[:2]
             host.ThreadingHTTPServer.server_bind = _fast_bind
 
+            leak_file = os.environ["LEAK_FILE"]
+            def check_isolation(inp, ctx):
+                joined = " ".join(os.environ.values()) + " " + repr(inp) + " " + repr(ctx)
+                if "%s" in joined or "%s" in joined:
+                    with open(leak_file, "w", encoding="utf-8") as f:
+                        f.write("LEAKED")
+
             class Handlers:
                 def format_settlement_instruction(self, inp: t.CheckpointDispatch, ctx: t.FunctionContext) -> t.SettlementInstruction:
+                    check_isolation(inp, ctx)
                     return t.SettlementInstruction(
                         orderSeq=inp.orderSeq,
                         accountId=inp.accountId,
@@ -518,11 +552,11 @@ class Tier3MixedTopologyProofTest {
             signal.signal(signal.SIGTERM, stop)
             while True:
                 time.sleep(0.2)
-            """);
+            """.formatted(RISK_API_TOKEN, SETTLEMENT_API_TOKEN));
         return PolyglotHostProcess.start(
             List.of("python3", "-u", runner.toString()),
             genDir,
-            Map.of("TPF_SECRET", SHARED_SECRET),
+            Map.of("TPF_SECRET", SHARED_SECRET, "LEAK_FILE", leakFile.toString()),
             Duration.ofSeconds(15));
     }
 }
