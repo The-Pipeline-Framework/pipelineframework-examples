@@ -16,6 +16,9 @@ Executable compatibility proof for ADR-0092 (*Java Execution Engine + Foreign Fu
 4. **Crash-Safe Local Disk Store Restart Recovery & DynamoDB Equivalence (`PolyglotDynamoEquivalenceIT`):**
    - Proves crash/restart recovery across both durable `QUEUED` admission before dispatch (zero premature invocations; ordinary sweep completes once after restart) and durable `WAITING_EXTERNAL` Await (persisted Await request payload decoded and resumed after restart without re-running prior steps).
    - Runs the same multi-field polyglot streaming and failure workflows against both the disk-backed store (modeling `tpf dev` durability) and TPF's production `DynamoExecutionStateStore` on LocalStack DynamoDB, verifying identical state transitions, version monotonicity, failure metadata, and canonical output payloads.
+5. **Tier-3 Mixed-Topology Pipeline (`Tier3MixedTopologyProofTest`):**
+   - Combines TPF's JVM ecosystem `HttpConnector` (`http.client` v1 over loopback TLS with host-owned bearer credentials and `Idempotency-Key`), a live Node (TypeScript) foreign function host, and a live Python foreign function host inside one pipeline (`tier3-mixed-ingress-pipeline.yaml`).
+   - Proves polyglot `SIDE_EFFECT` pass-through semantics (Node audit executes without mutating the downstream canonical payload), canonical v3 union branching (`express` vs `standard` variants routed in Python), cross-pipeline `CheckpointPublicationService` handoff into an independently owned downstream settlement pipeline (`tier3-downstream-settlement-pipeline.yaml`), exact `int64 > 2^53` + `decimal` fidelity across the handoff boundary, and zero credential leakage to Node or Python hosts.
 
 ## Prerequisites & Running
 

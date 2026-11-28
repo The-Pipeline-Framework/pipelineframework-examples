@@ -2,6 +2,7 @@ package org.pipelineframework;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -16,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -24,6 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import javax.net.ssl.SSLContext;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -69,10 +72,17 @@ import org.pipelineframework.connector.ConnectorBindingRegistry;
 import org.pipelineframework.connector.ConnectorConfigurationDocument;
 import org.pipelineframework.connector.ConnectorOperationIdentity;
 import org.pipelineframework.connector.ConnectorOperationKind;
+import org.pipelineframework.connector.ConnectorProvider;
+import org.pipelineframework.connector.ConnectorProviderId;
 import org.pipelineframework.connector.ConnectorProviderLease;
 import org.pipelineframework.connector.ConnectorRegistry;
 import org.pipelineframework.connector.ConnectorRuntimeContext;
 import org.pipelineframework.connector.ResolvedConnection;
+import org.pipelineframework.connector.http.HttpAuthorizationMaterial;
+import org.pipelineframework.connector.http.HttpAuthorizationProvider;
+import org.pipelineframework.connector.http.HttpClientConnection;
+import org.pipelineframework.connector.http.HttpConnector;
+import org.pipelineframework.connector.http.ProofHttpConnectorFactory;
 import org.pipelineframework.connector.polyglot.PolyglotConnectorConnection;
 import org.pipelineframework.connector.polyglot.PolyglotConnectorProvider;
 import org.pipelineframework.connector.polyglot.PolyglotConnectorSpec;
@@ -168,6 +178,26 @@ public final class PolyglotProofHarness implements AutoCloseable {
         Map<String, String> connectorSecrets,
         Function<PipelineOrchestratorConfig, ExecutionStateStore> stateStoreOverride
     ) throws IOException {
+        this(pipelineYaml, functionHostUri, Map.of(), connectorHostUri, sharedSecret,
+            dataDir, maxRetries, connectorSecrets, stateStoreOverride, Optional.empty(), Optional.empty());
+    }
+
+    public PolyglotProofHarness(
+        Path pipelineYaml,
+        URI defaultFunctionHostUri,
+        Map<String, URI> stepHostOverrides,
+        URI connectorHostUri,
+        String sharedSecret,
+        Path dataDir,
+        int maxRetries,
+        Map<String, String> connectorSecrets,
+        Function<PipelineOrchestratorConfig, ExecutionStateStore> stateStoreOverride,
+        Optional<CheckpointPublicationService> checkpointServiceOverride,
+        Optional<SSLContext> httpSslContext
+    ) throws IOException {
+        Objects.requireNonNull(stepHostOverrides, "stepHostOverrides must not be null");
+        Objects.requireNonNull(checkpointServiceOverride, "checkpointServiceOverride must not be null");
+        Objects.requireNonNull(httpSslContext, "httpSslContext must not be null");
         JsonTransitionPayloadCodec payloadCodec = new JsonTransitionPayloadCodec();
         this.diskStores = new DiskProofStores(dataDir, payloadCodec);
         this.template = new PipelineTemplateConfigLoader().load(pipelineYaml);
@@ -197,7 +227,7 @@ public final class PolyglotProofHarness implements AutoCloseable {
         });
 
         ConnectorHolder connHolder = buildConnectorSupport(
-            yamlConfig, connectorHostUri, sharedSecret, connectorSecrets, config);
+            yamlConfig, connectorHostUri, sharedSecret, connectorSecrets, config, httpSslContext);
         this.bindingRegistry = connHolder.bindingRegistry();
         this.connectorContext = connHolder.runtimeContext();
         this.commandSupport = connHolder.commandSupport();
@@ -205,7 +235,8 @@ public final class PolyglotProofHarness implements AutoCloseable {
 
         List<Object> steps = new ArrayList<>();
         List<Map<String, Object>> edges = new ArrayList<>();
-        buildStepsAndEdges(yamlConfig, functionHostUri, sharedSecret, connHolder, steps, edges);
+        buildStepsAndEdges(
+            yamlConfig, defaultFunctionHostUri, stepHostOverrides, sharedSecret, connHolder, steps, edges);
 
         Files.createDirectories(dataDir);
         Path orderFile = dataDir.resolve("meta-order.json");
@@ -263,12 +294,13 @@ public final class PolyglotProofHarness implements AutoCloseable {
         coordinator.workDispatcher = dispatcher;
         coordinator.deadLetterPublisher = dlq;
         coordinator.awaitCoordinator = awaitCoordinator;
-        coordinator.checkpointPublicationService = new CheckpointPublicationService() {
-            @Override public boolean enabled() { return false; }
-            @Override public Uni<Void> publishIfConfigured(ExecutionRecord<Object, Object> r, Object payload) {
-                return Uni.createFrom().voidItem();
-            }
-        };
+        coordinator.checkpointPublicationService = checkpointServiceOverride.orElseGet(() ->
+            new CheckpointPublicationService() {
+                @Override public boolean enabled() { return false; }
+                @Override public Uni<Void> publishIfConfigured(ExecutionRecord<Object, Object> r, Object payload) {
+                    return Uni.createFrom().voidItem();
+                }
+            });
         coordinator.objectPublishCompletionService = new ObjectPublishCompletionService() {
             @Override public boolean enabled() { return false; }
         };
@@ -486,40 +518,65 @@ public final class PolyglotProofHarness implements AutoCloseable {
         URI connectorHostUri,
         String sharedSecret,
         Map<String, String> connectorSecrets,
-        PipelineOrchestratorConfig orchestratorConfig
+        PipelineOrchestratorConfig orchestratorConfig,
+        Optional<SSLContext> httpSslContext
     ) {
         Map<String, PipelineYamlStep> yamlByToken = indexYamlSteps(yamlConfig);
         List<PolyglotConnectorSpec.QueryOperationSpec> queries = new ArrayList<>();
         List<PolyglotConnectorSpec.CommandOperationSpec> commands = new ArrayList<>();
         Map<String, ConnectorBindingName> bindings = new LinkedHashMap<>();
 
+        List<ProofHttpConnectorFactory.OperationSpec> httpOps = new ArrayList<>();
+        Map<String, HttpBindingSpec> httpBindings = new LinkedHashMap<>();
+
         for (PipelineTemplateStep step : template.steps()) {
             PipelineYamlStep ys = yamlByToken.get(normalizeToken(step.name()));
             if (ys == null || ys.operationSelection().isEmpty()) continue;
             PipelineYamlOperationSelection sel = ys.operationSelection().orElseThrow();
             PipelineYamlConnectorBinding binding = yamlConfig.connectors().get(sel.using());
-            if (binding == null || !"polyglot.connector".equalsIgnoreCase(binding.provider())) continue;
-            bindings.putIfAbsent(sel.using(), ConnectorBindingName.of(sel.using()));
+            if (binding == null) continue;
             String kind = ys.kind().trim().toLowerCase(Locale.ROOT);
             int major = sel.operationVersion();
-            if ("query".equals(kind)) {
-                queries.add(new PolyglotConnectorSpec.QueryOperationSpec(
-                    sel.operation(), major, step.inputTypeName(), step.outputTypeName()));
-            } else if ("command".equals(kind)) {
-                Map<String, Object> cfg = binding.config() == null ? Map.of() : binding.config();
-                boolean reconcile = Boolean.parseBoolean(String.valueOf(cfg.getOrDefault("reconciliationSupported", false)));
-                Optional<String> refKind = Optional.ofNullable(cfg.get("receiptReferenceKind"))
-                    .map(Object::toString).filter(v -> !v.isBlank());
-                commands.add(new PolyglotConnectorSpec.CommandOperationSpec(
-                    sel.operation(), major, step.inputTypeName(), step.outputTypeName(), reconcile, refKind));
+            Map<String, Object> cfg = binding.config() == null ? Map.of() : binding.config();
+
+            if ("polyglot.connector".equalsIgnoreCase(binding.provider())) {
+                bindings.putIfAbsent(sel.using(), ConnectorBindingName.of(sel.using()));
+                if ("query".equals(kind)) {
+                    queries.add(new PolyglotConnectorSpec.QueryOperationSpec(
+                        sel.operation(), major, step.inputTypeName(), step.outputTypeName()));
+                } else if ("command".equals(kind)) {
+                    boolean reconcile = Boolean.parseBoolean(String.valueOf(cfg.getOrDefault("reconciliationSupported", false)));
+                    Optional<String> refKind = Optional.ofNullable(cfg.get("receiptReferenceKind"))
+                        .map(Object::toString).filter(v -> !v.isBlank());
+                    commands.add(new PolyglotConnectorSpec.CommandOperationSpec(
+                        sel.operation(), major, step.inputTypeName(), step.outputTypeName(), reconcile, refKind));
+                }
+            } else if ("http.client".equalsIgnoreCase(binding.provider())) {
+                HttpBindingSpec httpSpec = httpBindings.computeIfAbsent(sel.using(),
+                    name -> parseHttpBindingSpec(name, cfg, connectorSecrets));
+                ConnectorOperationKind opKind = "query".equals(kind)
+                    ? ConnectorOperationKind.QUERY
+                    : ConnectorOperationKind.COMMAND;
+                httpOps.add(parseHttpOperationSpec(
+                    sel.operation(), opKind, major, step.inputTypeName(), step.outputTypeName(),
+                    cfg, httpSpec.authScheme()));
             }
         }
-        if (queries.isEmpty() && commands.isEmpty()) {
+        if (queries.isEmpty() && commands.isEmpty() && httpOps.isEmpty()) {
             return new ConnectorHolder(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
         }
 
-        PolyglotConnectorProvider provider = new PolyglotConnectorProvider(
-            new PolyglotConnectorSpec(catalogue, queries, commands));
+        HttpClient.Builder httpBuilder = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .connectTimeout(Duration.ofSeconds(5))
+            .followRedirects(HttpClient.Redirect.NEVER);
+        httpSslContext.ifPresent(httpBuilder::sslContext);
+        HttpClient pinnedHttpClient = httpBuilder.build();
+        Map<String, HttpBindingSpec> httpByConnection = new LinkedHashMap<>();
+        for (HttpBindingSpec spec : httpBindings.values()) {
+            httpByConnection.put(spec.connectionRef(), spec);
+        }
+
         ConnectionResolver resolver = new ConnectionResolver() {
             @Override
             public <T extends ResolvedConnection> CompletionStage<T> resolve(ConnectionResolutionRequest<T> request) {
@@ -528,19 +585,51 @@ public final class PolyglotProofHarness implements AutoCloseable {
                         connectorHostUri, sharedSecret, connectorSecrets, true);
                     return CompletableFuture.completedStage(request.connectionType().cast(conn));
                 }
+                if (request.connectionType().equals(HttpClientConnection.class)) {
+                    HttpBindingSpec spec = httpByConnection.get(request.reference().value());
+                    if (spec == null) {
+                        return CompletableFuture.failedStage(
+                            new IllegalArgumentException("Unknown HTTP connection: " + request.reference().value()));
+                    }
+                    HttpAuthorizationProvider authProvider = spec.bearerToken().isPresent()
+                        ? authReq -> CompletableFuture.completedStage(new HttpAuthorizationMaterial(
+                            Map.of("Authorization", List.of("Bearer " + spec.bearerToken().orElseThrow())),
+                            Map.of(),
+                            Map.of()))
+                        : HttpAuthorizationProvider.none();
+                    Set<String> schemes = spec.authScheme().map(Set::of).orElseGet(Set::of);
+                    HttpClientConnection conn = new HttpClientConnection(
+                        pinnedHttpClient, spec.baseUri(), schemes, authProvider);
+                    return CompletableFuture.completedStage(request.connectionType().cast(conn));
+                }
                 return CompletableFuture.failedStage(new IllegalArgumentException("Unknown connection type"));
             }
         };
         ConnectorRuntimeContext runtimeContext = ConnectorRuntimeContext.of(
             "polyglot-proof", connectorExecutor, Clock.systemUTC(), Optional.of(resolver));
+        List<ConnectorProvider<?>> providers = new ArrayList<>();
         List<ConnectorBindingDefinition> bindingDefs = new ArrayList<>();
-        for (ConnectorBindingName name : bindings.values()) {
-            bindingDefs.add(new ConnectorBindingDefinition(
-                name, PolyglotConnectorProvider.PROVIDER_ID, 1,
-                new ConnectorConfigurationDocument(Map.of("connection", "polyglot-connector-host"))));
+        if (!queries.isEmpty() || !commands.isEmpty()) {
+            providers.add(new PolyglotConnectorProvider(new PolyglotConnectorSpec(catalogue, queries, commands)));
+            for (ConnectorBindingName name : bindings.values()) {
+                bindingDefs.add(new ConnectorBindingDefinition(
+                    name, PolyglotConnectorProvider.PROVIDER_ID, 1,
+                    new ConnectorConfigurationDocument(Map.of("connection", "polyglot-connector-host"))));
+            }
+        }
+        if (!httpOps.isEmpty()) {
+            providers.add(ProofHttpConnectorFactory.create(catalogue, httpOps));
+            for (HttpBindingSpec spec : httpBindings.values()) {
+                bindingDefs.add(new ConnectorBindingDefinition(
+                    spec.bindingName(), HttpConnector.PROVIDER_ID, 1,
+                    new ConnectorConfigurationDocument(Map.of(
+                        "connection", spec.connectionRef(),
+                        "maxRequestBytes", 65536,
+                        "maxResponseBytes", 65536))));
+            }
         }
         ConnectorBindingRegistry registry = ConnectorBindingRegistry.fromProviders(
-            bindingDefs, List.of(provider), p -> ConnectorProviderLease.of(p, () -> { }));
+            bindingDefs, providers, p -> ConnectorProviderLease.of(p, () -> { }));
         registry.start(runtimeContext).toCompletableFuture().join();
 
         CommandStepSupport cmdSupport = new CommandStepSupport(
@@ -554,7 +643,8 @@ public final class PolyglotProofHarness implements AutoCloseable {
 
     private void buildStepsAndEdges(
         PipelineYamlConfig yamlConfig,
-        URI functionHostUri,
+        URI defaultFunctionHostUri,
+        Map<String, URI> stepHostOverrides,
         String sharedSecret,
         ConnectorHolder connHolder,
         List<Object> steps,
@@ -580,13 +670,17 @@ public final class PolyglotProofHarness implements AutoCloseable {
                 && ys != null && ys.operationSelection().isPresent()) {
                 PipelineYamlOperationSelection sel = ys.operationSelection().orElseThrow();
                 PipelineYamlConnectorBinding binding = yamlConfig.connectors().get(sel.using());
+                boolean isHttp = binding != null && "http.client".equalsIgnoreCase(binding.provider());
+                ConnectorProviderId providerId = isHttp
+                    ? HttpConnector.PROVIDER_ID
+                    : PolyglotConnectorProvider.PROVIDER_ID;
                 int major = sel.operationVersion();
                 if ("query".equals(kind)) {
                     QueryStepDescriptor desc = QueryStepDescriptor.nativeQuery(
                         stepId, JsonNode.class.getName(), JsonNode.class.getName(), "ONE_TO_ONE",
                         new NativeQuerySelector(
                             ConnectorBindingName.of(sel.using()),
-                            new ConnectorOperationIdentity(PolyglotConnectorProvider.PROVIDER_ID, sel.operation(),
+                            new ConnectorOperationIdentity(providerId, sel.operation(),
                                 ConnectorOperationKind.QUERY, major), 1),
                         Map.of());
                     queryDescriptors.put(stepId, desc);
@@ -594,12 +688,13 @@ public final class PolyglotProofHarness implements AutoCloseable {
                         outputType, outputFp, catalogFingerprint);
                 } else {
                     Map<String, Object> cfg = binding.config() == null ? Map.of() : binding.config();
-                    boolean reconcile = Boolean.parseBoolean(String.valueOf(cfg.getOrDefault("reconciliationSupported", false)));
+                    boolean reconcile = !isHttp
+                        && Boolean.parseBoolean(String.valueOf(cfg.getOrDefault("reconciliationSupported", false)));
                     CommandDescriptor desc = CommandDescriptor.nativeCommand(
                         stepId,
                         new NativeCommandSelector(
                             Optional.of(ConnectorBindingName.of(sel.using())),
-                            new ConnectorOperationIdentity(PolyglotConnectorProvider.PROVIDER_ID, sel.operation(),
+                            new ConnectorOperationIdentity(providerId, sel.operation(),
                                 ConnectorOperationKind.COMMAND, major),
                             1,
                             new CommandPolicy(true, true, reconcile, Optional.empty(),
@@ -611,26 +706,32 @@ public final class PolyglotProofHarness implements AutoCloseable {
                         stepId, outputType, outputFp, catalogFingerprint);
                 }
             } else {
-                String card = normalizeCardinality(step.cardinality());
+                String rawCard = step.cardinality() == null ? "ONE_TO_ONE" : step.cardinality().trim().toUpperCase(Locale.ROOT);
+                boolean isSideEffect = "SIDE_EFFECT".equals(rawCard);
+                String card = normalizeCardinality(rawCard);
                 Optional<String> cmdId = Optional.of("cmd-" + stepId);
+                URI stepHostUri = stepHostOverrides.getOrDefault(stepId, defaultFunctionHostUri);
                 instance = switch (card) {
-                    case "ONE_TO_ONE" -> new CanonicalFunctionHostStep(
-                        new CanonicalFunctionHostStep.Spec(
-                            stepId, i, inputType, inputFp, outputType, outputFp,
-                            catalogFingerprint, catalogue, functionHostUri, sharedSecret,
-                            STEP_TIMEOUT, cmdId).withDispatchIntentStore(diskStores.dispatchIntentStore),
-                        true);
+                    case "ONE_TO_ONE" -> {
+                        CanonicalFunctionHostStep delegate = new CanonicalFunctionHostStep(
+                            new CanonicalFunctionHostStep.Spec(
+                                stepId, i, inputType, inputFp, outputType, outputFp,
+                                catalogFingerprint, catalogue, stepHostUri, sharedSecret,
+                                STEP_TIMEOUT, cmdId).withDispatchIntentStore(diskStores.dispatchIntentStore),
+                            true);
+                        yield isSideEffect ? new SideEffectCanonicalStep(delegate) : delegate;
+                    }
                     case "ONE_TO_MANY" -> new CanonicalFunctionHostOneToManyStep(
                         new CanonicalFunctionHostOneToManyStep.Spec(
                             stepId, i, inputType, inputFp, outputType, outputFp,
-                            catalogFingerprint, catalogue, functionHostUri, sharedSecret,
+                            catalogFingerprint, catalogue, stepHostUri, sharedSecret,
                             STEP_TIMEOUT, STEP_TIMEOUT, cmdId, diskStores.dispatchIntentStore,
                             4 * 1024 * 1024),
                         true);
                     case "MANY_TO_ONE" -> new CanonicalFunctionHostManyToOneStep(
                         new CanonicalFunctionHostManyToOneStep.Spec(
                             stepId, i, inputType, inputFp, outputType, outputFp,
-                            catalogFingerprint, catalogue, functionHostUri, sharedSecret,
+                            catalogFingerprint, catalogue, stepHostUri, sharedSecret,
                             STEP_TIMEOUT, cmdId, diskStores.dispatchIntentStore,
                             4 * 1024 * 1024),
                         true);
@@ -642,6 +743,75 @@ public final class PolyglotProofHarness implements AutoCloseable {
                 "stepClass", instance.getClass().getName(),
                 "inputTypeId", inputType,
                 "outputTypeId", outputType));
+        }
+    }
+
+    private record HttpBindingSpec(
+        ConnectorBindingName bindingName,
+        String connectionRef,
+        URI baseUri,
+        Optional<String> authScheme,
+        Optional<String> bearerToken
+    ) { }
+
+    private static HttpBindingSpec parseHttpBindingSpec(
+        String bindingName, Map<String, Object> cfg, Map<String, String> connectorSecrets
+    ) {
+        URI baseUri = URI.create(String.valueOf(cfg.get("baseUri")));
+        String connectionRef = optionalString(cfg.get("connection")).orElse(bindingName);
+        Optional<String> bearer = optionalString(cfg.get("bearerTokenSecret"))
+            .flatMap(k -> Optional.ofNullable(connectorSecrets.get(k)))
+            .or(() -> optionalString(cfg.get("bearerToken")));
+        Optional<String> authScheme = optionalString(cfg.get("authScheme"))
+            .or(() -> bearer.isPresent() ? Optional.of("bearer") : Optional.empty());
+        return new HttpBindingSpec(ConnectorBindingName.of(bindingName), connectionRef, baseUri, authScheme, bearer);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ProofHttpConnectorFactory.OperationSpec parseHttpOperationSpec(
+        String operationId,
+        ConnectorOperationKind kind,
+        int majorVersion,
+        String inputType,
+        String outputType,
+        Map<String, Object> bindingCfg,
+        Optional<String> defaultAuthScheme
+    ) {
+        Map<String, Object> opCfg = bindingCfg.get("operations") instanceof Map<?, ?> opsMap
+            && opsMap.get(operationId) instanceof Map<?, ?> found
+            ? (Map<String, Object>) found
+            : Map.of();
+        String method = optionalString(opCfg.get("method")).orElse(kind == ConnectorOperationKind.QUERY ? "GET" : "POST");
+        String path = optionalString(opCfg.get("path")).orElse("/" + operationId.replace('.', '/'));
+        List<String> queryParams = opCfg.get("queryParams") instanceof List<?> list
+            ? list.stream().filter(Objects::nonNull).map(Object::toString).toList()
+            : List.of();
+        Optional<String> idemHeader = optionalString(opCfg.get("idempotencyHeader"));
+        String successStatus = optionalString(opCfg.get("successStatus")).orElse("200");
+        Optional<String> authScheme = optionalString(opCfg.get("authScheme")).or(() -> defaultAuthScheme);
+        return new ProofHttpConnectorFactory.OperationSpec(
+            operationId, kind, majorVersion, inputType, outputType,
+            method, path, queryParams, idemHeader, successStatus, authScheme);
+    }
+
+    private static Optional<String> optionalString(Object raw) {
+        if (raw == null) return Optional.empty();
+        String text = raw.toString().trim();
+        return text.isEmpty() ? Optional.empty() : Optional.of(text);
+    }
+
+    /** Executes a polyglot SIDE_EFFECT step and passes through the original canonical payload unchanged. */
+    private static final class SideEffectCanonicalStep extends ConfigurableStep
+        implements StepOneToOne<TypedDurablePayload, TypedDurablePayload> {
+        private final CanonicalFunctionHostStep delegate;
+
+        SideEffectCanonicalStep(CanonicalFunctionHostStep delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Uni<TypedDurablePayload> applyOneToOne(TypedDurablePayload input) {
+            return delegate.applyOneToOne(input).replaceWith(input);
         }
     }
 
@@ -832,7 +1002,7 @@ public final class PolyglotProofHarness implements AutoCloseable {
     private static String normalizeCardinality(String raw) {
         if (raw == null || raw.isBlank()) return "ONE_TO_ONE";
         return switch (raw.trim().toUpperCase(Locale.ROOT)) {
-            case "ONE_TO_ONE", "UNARY" -> "ONE_TO_ONE";
+            case "ONE_TO_ONE", "UNARY", "SIDE_EFFECT" -> "ONE_TO_ONE";
             case "ONE_TO_MANY", "EXPANSION" -> "ONE_TO_MANY";
             case "MANY_TO_ONE", "REDUCTION" -> "MANY_TO_ONE";
             default -> raw.trim().toUpperCase(Locale.ROOT);
