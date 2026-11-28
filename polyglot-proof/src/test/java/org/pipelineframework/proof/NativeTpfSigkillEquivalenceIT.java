@@ -243,7 +243,7 @@ class NativeTpfSigkillEquivalenceIT {
         }
     }
 
-    private static Optional<Path> resolveNativeTpfBinary() throws Exception {
+    static Optional<Path> resolveNativeTpfBinary() throws Exception {
         String configured = Optional.ofNullable(System.getProperty("tpf.native.bin"))
             .filter(v -> !v.isBlank())
             .orElseGet(() -> System.getenv("TPF_NATIVE_BIN"));
@@ -350,7 +350,7 @@ class NativeTpfSigkillEquivalenceIT {
         }
     }
 
-    private static Optional<String> detectPlatform() {
+    static Optional<String> detectPlatform() {
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
         if (os.contains("mac") && (arch.contains("aarch64") || arch.contains("arm64"))) {
@@ -409,15 +409,21 @@ class NativeTpfSigkillEquivalenceIT {
         }
     }
 
-    private static NativeDevProcess startNativeDev(
+    static NativeDevProcess startNativeDev(
         Path binary, Path home, Path emptyPathDir, Path yaml, URI functionHost, Path dataDir
+    ) throws Exception {
+        return startNativeDev(binary, home, emptyPathDir, yaml, functionHost, dataDir, SHARED_SECRET);
+    }
+
+    static NativeDevProcess startNativeDev(
+        Path binary, Path home, Path emptyPathDir, Path yaml, URI functionHost, Path dataDir, String secret
     ) throws Exception {
         Process proc = nativeProcessBuilder(binary, home, emptyPathDir, List.of(
             "dev",
             "--pipeline", yaml.toString(),
             "--function-host", functionHost.toString(),
             "--data-dir", dataDir.toString(),
-            "--secret", SHARED_SECRET,
+            "--secret", secret,
             "--port", "0",
             "--max-retries", "2")).start();
         StringBuilder log = new StringBuilder();
@@ -464,7 +470,7 @@ class NativeTpfSigkillEquivalenceIT {
         }
     }
 
-    private static void terminateProcess(Process proc) {
+    static void terminateProcess(Process proc) {
         if (proc != null && proc.isAlive()) {
             proc.destroy();
             try {
@@ -479,14 +485,14 @@ class NativeTpfSigkillEquivalenceIT {
         }
     }
 
-    private static void sigkill(NativeDevProcess dev) throws Exception {
+    static void sigkill(NativeDevProcess dev) throws Exception {
         Process killer = new ProcessBuilder("/bin/kill", "-9", Long.toString(dev.osPid())).start();
         assertTrue(killer.waitFor(5, TimeUnit.SECONDS));
         assertTrue(dev.process().waitFor(10, TimeUnit.SECONDS), "Native tpf dev did not exit on SIGKILL");
         assertNotEquals(0, dev.process().exitValue(), "SIGKILL should produce non-zero exit status");
     }
 
-    private static JsonNode awaitStatus(URI url, String expectedStatus, Duration timeout) throws Exception {
+    static JsonNode awaitStatus(URI url, String expectedStatus, Duration timeout) throws Exception {
         long deadline = System.nanoTime() + timeout.toNanos();
         JsonNode last = null;
         while (System.nanoTime() < deadline) {
@@ -499,7 +505,7 @@ class NativeTpfSigkillEquivalenceIT {
         throw new AssertionError("Timed out waiting for status " + expectedStatus + ", last=" + last);
     }
 
-    private static JsonNode httpGetJson(URI uri) throws Exception {
+    static JsonNode httpGetJson(URI uri) throws Exception {
         HttpResponse<String> resp = HTTP.send(
             HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(15)).GET().build(),
             HttpResponse.BodyHandlers.ofString());
@@ -507,7 +513,7 @@ class NativeTpfSigkillEquivalenceIT {
         return EXACT_JSON.readTree(resp.body());
     }
 
-    private static JsonNode httpPostJson(URI uri, String json) throws Exception {
+    static JsonNode httpPostJson(URI uri, String json) throws Exception {
         HttpResponse<String> resp = HTTP.send(
             HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(15))
@@ -577,7 +583,7 @@ class NativeTpfSigkillEquivalenceIT {
     private record ProcessResult(int exitCode, String output) {
     }
 
-    private record NativeDevProcess(Process process, URI baseUri, long osPid, StringBuilder log)
+    record NativeDevProcess(Process process, URI baseUri, long osPid, StringBuilder log)
         implements AutoCloseable {
         @Override
         public void close() {

@@ -13,9 +13,31 @@
 
     <artifactId>polyglot-proof</artifactId>
     <name>Polyglot Proof (ADR-0092)</name>
-    <description>Cross-language TypeScript &amp; Python proof over canonical v3 contracts, streaming, custom connectors, crash-safe recovery, and DynamoDB equivalence.</description>
+    <description>Cross-language TypeScript, Python, and Spring Boot proof over canonical v3 contracts, streaming, custom connectors, crash-safe recovery, and DynamoDB equivalence.</description>
+
+    <properties>
+        <spring.boot.version>4.1.2</spring.boot.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
+        <dependency>
+            <groupId>org.pipelineframework</groupId>
+            <artifactId>spring-foreign-host-app</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.pipelineframework</groupId>
             <artifactId>pipelineframework-compiler</artifactId>
