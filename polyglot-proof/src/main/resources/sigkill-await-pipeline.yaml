@@ -1,0 +1,53 @@
+version: 3
+appName: SigkillEquivalenceProof
+basePackage: com.example.polyglot.sigkill
+transport: LOCAL
+platform: COMPUTE
+types:
+  PaymentInput:
+    fields:
+      - name: paymentId
+        type: string
+      - name: sequenceNumber
+        type: int64
+      - name: amount
+        type: decimal
+      - name: failFirstAttempt
+        type: bool
+  ValidatedPayment:
+    fields:
+      - name: paymentId
+        type: string
+      - name: sequenceNumber
+        type: int64
+      - name: amount
+        type: decimal
+  SettlementNotice:
+    fields:
+      - name: paymentId
+        type: string
+      - name: sequenceNumber
+        type: int64
+      - name: settledAmount
+        type: decimal
+  PaymentReceipt:
+    fields:
+      - name: paymentId
+        type: string
+      - name: sequenceNumber
+        type: int64
+      - name: settledAmount
+        type: decimal
+steps:
+  - name: Validate Payment
+    cardinality: ONE_TO_ONE
+    input: PaymentInput
+    output: ValidatedPayment
+  - name: Await Settlement
+    cardinality: ONE_TO_ONE
+    input: ValidatedPayment
+    output: SettlementNotice
+  - name: Finalize Receipt
+    cardinality: ONE_TO_ONE
+    input: SettlementNotice
+    output: PaymentReceipt
