@@ -17,7 +17,7 @@ This repository owns learning examples and architectural proofs for The Pipeline
 executable compatibility surfaces, not framework implementations and not libraries for other repositories to
 depend upon.
 
-`aws-durable-proof`, `spring-smoke-tests` and `spring-blocking-smoke-tests` are application compatibility
+`aws-durable-proof`, `polyglot-proof`, and `spring-foreign-host-proof` are application compatibility
 proofs in this canonical reactor. They consume released runtime/adapter artifacts; runtime-owned provider/unit
 tests remain in `pipelineframework-runtime`. Ordinary verification executes no real-AWS deployment.
 

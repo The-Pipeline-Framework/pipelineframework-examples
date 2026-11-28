@@ -1,0 +1,55 @@
+version: 3
+appName: SpringBillingStreamingProof
+basePackage: org.pipelineframework.examples.springhost
+transport: LOCAL
+platform: COMPUTE
+types:
+  BillingOrder:
+    fields:
+      - name: orderId
+        type: string
+      - name: sequenceNumber
+        type: int64
+      - name: unitAmount
+        type: decimal
+      - name: lineCount
+        type: int32
+      - name: failFirstAttempt
+        type: bool
+  OrderLine:
+    fields:
+      - name: orderId
+        type: string
+      - name: lineNumber
+        type: int32
+      - name: sequenceNumber
+        type: int64
+      - name: lineAmount
+        type: decimal
+  OrderSummary:
+    fields:
+      - name: orderId
+        type: string
+      - name: sequenceNumber
+        type: int64
+      - name: totalLines
+        type: int32
+      - name: grandTotal
+        type: decimal
+steps:
+  - name: Validate Order
+    cardinality: ONE_TO_ONE
+    input: BillingOrder
+    output: BillingOrder
+  - name: Expand Lines
+    cardinality: ONE_TO_MANY
+    input: BillingOrder
+    output: OrderLine
+  - name: Enrich Lines
+    cardinality: MANY_TO_MANY
+    input: OrderLine
+    output: OrderLine
+  - name: Summarise Order
+    cardinality: MANY_TO_ONE
+    input: OrderLine
+    output: OrderSummary

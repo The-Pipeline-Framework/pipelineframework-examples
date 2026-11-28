@@ -1,0 +1,67 @@
+version: 3
+appName: SpringAwaitProof
+basePackage: org.pipelineframework.examples.springhost
+transport: LOCAL
+platform: COMPUTE
+types:
+  PaymentAwaitRequest:
+    fields:
+      - name: paymentId
+        type: string
+      - name: sequenceNumber
+        type: int64
+      - name: amount
+        type: decimal
+      - name: failFirstAttempt
+        type: bool
+  PaymentSettled:
+    fields:
+      - name: paymentId
+        type: string
+      - name: sequenceNumber
+        type: int64
+      - name: settledAmount
+        type: decimal
+  AccountLookup:
+    fields:
+      - name: accountId
+        type: string
+  AccountProfile:
+    fields:
+      - name: accountId
+        type: string
+      - name: tier
+        type: string
+      - name: region
+        type: string
+  ChargeCommand:
+    fields:
+      - name: accountId
+        type: string
+      - name: amount
+        type: decimal
+      - name: simulateAmbiguous
+        type: bool
+  ChargeReceipt:
+    fields:
+      - name: chargeId
+        type: string
+      - name: accountId
+        type: string
+      - name: chargedAmount
+        type: decimal
+      - name: idempotencyKey
+        type: string
+steps:
+  - name: Prepare Payment
+    cardinality: ONE_TO_ONE
+    input: PaymentAwaitRequest
+    output: PaymentAwaitRequest
+  - name: Await Settlement
+    cardinality: ONE_TO_ONE
+    input: PaymentAwaitRequest
+    output: PaymentSettled
+  - name: Finalise Payment
+    cardinality: ONE_TO_ONE
+    input: PaymentSettled
+    output: PaymentSettled
