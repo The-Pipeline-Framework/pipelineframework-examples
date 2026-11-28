@@ -107,6 +107,11 @@ class ManyToManyDuplexProofTest {
         assertEquals(ExecutionStatus.SUCCEEDED, nodeRes.retryAfter().status());
         assertEquals(ExecutionStatus.SUCCEEDED, pyRes.retryAfter().status());
         assertEquals(nodeRes.retryCanonicalJson(), pyRes.retryCanonicalJson());
+        JsonNode retrySummary = PolyglotProofHarness.JSON.readTree(nodeRes.retryCanonicalJson());
+        assertEquals("201", retrySummary.path("batchSeq").asText());
+        assertEquals(1, retrySummary.path("lineCount").asInt());
+        assertEquals("202", retrySummary.path("maxLineSeq").asText());
+        assertEquals(0, new java.math.BigDecimal("9").compareTo(retrySummary.path("grandTotal").decimalValue()));
     }
 
     private static DuplexProofResult runDuplexProof(PolyglotCompiler.Target target, Path yaml, Path workDir)
