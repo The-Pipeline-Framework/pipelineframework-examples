@@ -257,46 +257,70 @@ class NativeTpfSigkillEquivalenceIT {
         }
         String plat = platform.orElseThrow();
 
-        // Resolve current `latest` release metadata first so cached binaries are always bound to the
-        // exact published digest (preventing stale cache reuse when `latest` advances).
+        // Resolve current `latest` release checksums directly from github.com release downloads first
+        // (avoids unauthenticated api.github.com 60 req/hr rate limits on shared CI runners), falling back
+        // to the GitHub Releases API only if checksums_sha256.txt is unavailable.
         try {
-            HttpRequest.Builder metaReq = HttpRequest.newBuilder(
-                    URI.create("https://api.github.com/repos/The-Pipeline-Framework/pipelineframework-cli/releases/tags/latest"))
-                .timeout(Duration.ofSeconds(20))
-                .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "tpf-examples-sigkill-it");
-            String token = System.getenv("GITHUB_TOKEN");
-            if (token != null && !token.isBlank()) {
-                metaReq.header("Authorization", "Bearer " + token);
-            }
-            HttpResponse<String> releaseResp = HTTP.send(metaReq.build(), HttpResponse.BodyHandlers.ofString());
-            if (releaseResp.statusCode() != 200) {
-                return Optional.empty();
-            }
-            JsonNode release = EXACT_JSON.readTree(releaseResp.body());
             String zipUrl = "";
-            String jsonUrl = "";
-            for (JsonNode asset : release.path("assets")) {
-                String name = asset.path("name").asText("");
-                if (name.endsWith("-" + plat + ".zip")) {
-                    zipUrl = asset.path("browser_download_url").asText("");
-                } else if (name.endsWith("-" + plat + ".json")) {
-                    jsonUrl = asset.path("browser_download_url").asText("");
+            String expectedSha = "";
+            String downloadBase = "https://github.com/The-Pipeline-Framework/pipelineframework-cli/releases/download/latest/";
+            HttpResponse<String> checksumsResp = HTTP.send(
+                HttpRequest.newBuilder(URI.create(downloadBase + "checksums_sha256.txt"))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("User-Agent", "tpf-examples-sigkill-it")
+                    .build(),
+                HttpResponse.BodyHandlers.ofString());
+            if (checksumsResp.statusCode() == 200) {
+                for (String rawLine : checksumsResp.body().split("\\R")) {
+                    String line = rawLine.trim();
+                    if (line.isEmpty()) continue;
+                    String[] parts = line.split("\\s+");
+                    if (parts.length >= 2 && parts[1].endsWith("-" + plat + ".zip")
+                        && parts[0].toLowerCase(Locale.ROOT).matches("[0-9a-f]{64}")) {
+                        expectedSha = parts[0].toLowerCase(Locale.ROOT);
+                        zipUrl = downloadBase + parts[1];
+                        break;
+                    }
                 }
             }
-            if (zipUrl.isBlank() || jsonUrl.isBlank()) {
-                return Optional.empty();
-            }
-            HttpResponse<String> metaAssetResp = HTTP.send(
-                HttpRequest.newBuilder(URI.create(jsonUrl)).timeout(Duration.ofSeconds(30)).build(),
-                HttpResponse.BodyHandlers.ofString());
-            if (metaAssetResp.statusCode() != 200) {
-                return Optional.empty();
-            }
-            JsonNode archiveMeta = EXACT_JSON.readTree(metaAssetResp.body());
-            String expectedSha = archiveMeta.path("sha256").asText("").trim().toLowerCase(Locale.ROOT);
-            if (!expectedSha.matches("[0-9a-f]{64}")) {
-                return Optional.empty();
+            if (zipUrl.isBlank() || expectedSha.isBlank()) {
+                HttpRequest.Builder metaReq = HttpRequest.newBuilder(
+                        URI.create("https://api.github.com/repos/The-Pipeline-Framework/pipelineframework-cli/releases/tags/latest"))
+                    .timeout(Duration.ofSeconds(20))
+                    .header("Accept", "application/vnd.github+json")
+                    .header("User-Agent", "tpf-examples-sigkill-it");
+                String token = System.getenv("GITHUB_TOKEN");
+                if (token != null && !token.isBlank()) {
+                    metaReq.header("Authorization", "Bearer " + token);
+                }
+                HttpResponse<String> releaseResp = HTTP.send(metaReq.build(), HttpResponse.BodyHandlers.ofString());
+                if (releaseResp.statusCode() != 200) {
+                    return Optional.empty();
+                }
+                JsonNode release = EXACT_JSON.readTree(releaseResp.body());
+                String jsonUrl = "";
+                for (JsonNode asset : release.path("assets")) {
+                    String name = asset.path("name").asText("");
+                    if (name.endsWith("-" + plat + ".zip")) {
+                        zipUrl = asset.path("browser_download_url").asText("");
+                    } else if (name.endsWith("-" + plat + ".json")) {
+                        jsonUrl = asset.path("browser_download_url").asText("");
+                    }
+                }
+                if (zipUrl.isBlank() || jsonUrl.isBlank()) {
+                    return Optional.empty();
+                }
+                HttpResponse<String> metaAssetResp = HTTP.send(
+                    HttpRequest.newBuilder(URI.create(jsonUrl)).timeout(Duration.ofSeconds(30)).build(),
+                    HttpResponse.BodyHandlers.ofString());
+                if (metaAssetResp.statusCode() != 200) {
+                    return Optional.empty();
+                }
+                JsonNode archiveMeta = EXACT_JSON.readTree(metaAssetResp.body());
+                expectedSha = archiveMeta.path("sha256").asText("").trim().toLowerCase(Locale.ROOT);
+                if (!expectedSha.matches("[0-9a-f]{64}")) {
+                    return Optional.empty();
+                }
             }
 
             Path cacheRoot = Path.of("target", "tpf-native-cache", plat, expectedSha).toAbsolutePath().normalize();

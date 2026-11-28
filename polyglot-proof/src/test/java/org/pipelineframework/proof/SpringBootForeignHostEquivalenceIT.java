@@ -16,17 +16,26 @@
 
 package org.pipelineframework.proof;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
 
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -59,9 +68,12 @@ import org.springframework.context.ConfigurableApplicationContext;
 class SpringBootForeignHostEquivalenceIT {
 
     private static final String SHARED_SECRET = "spring-boot-foreign-host-eq-secret-012345";
-    private static final String EXACT_DECIMAL = "12345678901234567890.123456789";
+    private static final String EXACT_DECIMAL = "12345678901234567890.123456787";
     private static final long ODD_INT64 = 9007199254740993L;
     private static final ObjectMapper EXACT_JSON = CanonicalTypeCatalogue.exactJsonMapper();
+    private static final HttpClient HTTP = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(15))
+        .build();
 
     private static final String STREAM_OK_PAYLOAD = """
         {"orderId":"ord-eq-1","sequenceNumber":%d,"unitAmount":%s,"lineCount":3,"failFirstAttempt":false}
@@ -132,14 +144,22 @@ class SpringBootForeignHostEquivalenceIT {
                         NativeTpfSigkillEquivalenceIT.startNativeDev(
                             nativeBinary, isolatedHome, emptyPathDir, streamYaml, springUri,
                             nativeStreamDir, SHARED_SECRET)) {
-                    JsonNode run = NativeTpfSigkillEquivalenceIT.httpPostJson(
+                    byte[] runBody = httpPostRawBytes(
                         devStream.baseUri().resolve("/runs"),
                         "{\"tenantId\":\"native-spring\",\"executionKey\":\"stream-1\",\"payload\":"
                             + STREAM_OK_PAYLOAD + "}");
-                    assertEquals("SUCCEEDED", run.path("status").asText(), "Native tpf dev streaming failed: " + run);
-                    String nativeStreamJson = EXACT_JSON.writeValueAsString(run.path("result"));
-                    assertEquals(EXACT_JSON.readTree(dynamoStream.okJson()), EXACT_JSON.readTree(nativeStreamJson),
-                        "Native tpf dev + Spring Boot streaming result must match LocalStack DynamoDB");
+                    JsonNode run = EXACT_JSON.readTree(runBody);
+                    assertEquals("SUCCEEDED", run.path("status").asText(),
+                        "Native tpf dev streaming failed: " + new String(runBody, StandardCharsets.UTF_8));
+                    byte[] nativeStreamBytes = extractRawFieldBytes(runBody, "result");
+                    assertEquals(
+                        dynamoStream.okJson(),
+                        new String(nativeStreamBytes, StandardCharsets.UTF_8),
+                        "Native tpf dev + Spring Boot streaming result JSON must match LocalStack DynamoDB");
+                    assertArrayEquals(
+                        dynamoStream.okJson().getBytes(StandardCharsets.UTF_8),
+                        nativeStreamBytes,
+                        "Native tpf dev + Spring Boot streaming result bytes must match LocalStack DynamoDB");
                 }
 
                 // 3b. Durable Await surviving SIGKILL via native `tpf dev`
@@ -148,7 +168,6 @@ class SpringBootForeignHostEquivalenceIT {
                     NativeTpfSigkillEquivalenceIT.startNativeDev(
                         nativeBinary, isolatedHome, emptyPathDir, awaitYaml, springUri,
                         nativeAwaitDir, SHARED_SECRET);
-                String execId;
                 String interactionId;
                 try {
                     JsonNode run = NativeTpfSigkillEquivalenceIT.httpPostJson(
@@ -156,7 +175,6 @@ class SpringBootForeignHostEquivalenceIT {
                         "{\"tenantId\":\"native-spring\",\"executionKey\":\"await-1\",\"payload\":"
                             + AWAIT_PAYLOAD + "}");
                     assertEquals("WAITING_EXTERNAL", run.path("status").asText(), "Expected WAITING_EXTERNAL: " + run);
-                    execId = run.path("executionId").asText();
                     interactionId = run.path("interactionId").asText();
                     assertFalse(interactionId.isBlank());
                     NativeTpfSigkillEquivalenceIT.sigkill(dev1);
@@ -168,16 +186,23 @@ class SpringBootForeignHostEquivalenceIT {
                         NativeTpfSigkillEquivalenceIT.startNativeDev(
                             nativeBinary, isolatedHome, emptyPathDir, awaitYaml, springUri,
                             nativeAwaitDir, SHARED_SECRET)) {
-                    JsonNode completed = NativeTpfSigkillEquivalenceIT.httpPostJson(
+                    byte[] completedBody = httpPostRawBytes(
                         dev2.baseUri().resolve("/awaits/complete"),
                         "{\"tenantId\":\"native-spring\",\"interactionId\":\"" + interactionId
                             + "\",\"completionId\":\"comp-spring-await-1\",\"payload\":" + AWAIT_COMPLETION + "}");
+                    JsonNode completed = EXACT_JSON.readTree(completedBody);
                     assertEquals("SUCCEEDED", completed.path("status").asText(),
-                        "Resumed native tpf dev Await failed: " + completed);
+                        "Resumed native tpf dev Await failed: " + new String(completedBody, StandardCharsets.UTF_8));
                     assertFalse(completed.path("duplicate").asBoolean());
-                    String nativeAwaitJson = EXACT_JSON.writeValueAsString(completed.path("result"));
-                    assertEquals(EXACT_JSON.readTree(dynamoAwaitJson), EXACT_JSON.readTree(nativeAwaitJson),
-                        "SIGKILL-recovered native tpf dev + Spring Boot Await result must match DynamoDB");
+                    byte[] nativeAwaitBytes = extractRawFieldBytes(completedBody, "result");
+                    assertEquals(
+                        dynamoAwaitJson,
+                        new String(nativeAwaitBytes, StandardCharsets.UTF_8),
+                        "SIGKILL-recovered native tpf dev + Spring Boot Await result JSON must match DynamoDB");
+                    assertArrayEquals(
+                        dynamoAwaitJson.getBytes(StandardCharsets.UTF_8),
+                        nativeAwaitBytes,
+                        "SIGKILL-recovered native tpf dev + Spring Boot Await result bytes must match DynamoDB");
                 }
             }
         }
@@ -267,6 +292,51 @@ class SpringBootForeignHostEquivalenceIT {
     private static URI hostUri(ConfigurableApplicationContext ctx) {
         int port = Integer.parseInt(ctx.getEnvironment().getRequiredProperty("local.server.port"));
         return URI.create("http://127.0.0.1:" + port);
+    }
+
+    private static byte[] httpPostRawBytes(URI uri, String jsonBody) throws Exception {
+        HttpRequest req = HttpRequest.newBuilder(uri)
+            .timeout(Duration.ofSeconds(30))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+            .build();
+        HttpResponse<byte[]> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofByteArray());
+        if (resp.statusCode() >= 400) {
+            throw new IllegalStateException("HTTP " + resp.statusCode() + " from " + uri + ": "
+                + new String(resp.body(), StandardCharsets.UTF_8));
+        }
+        return resp.body();
+    }
+
+    /**
+     * Extracts the exact raw UTF-8 byte slice of a top-level JSON field value from {@code jsonBody}
+     * without parsing and reserialising the value.
+     */
+    private static byte[] extractRawFieldBytes(byte[] jsonBody, String fieldName) throws Exception {
+        try (JsonParser parser = EXACT_JSON.getFactory().createParser(jsonBody)) {
+            if (parser.nextToken() != JsonToken.START_OBJECT) {
+                throw new IllegalStateException("Expected top-level JSON object");
+            }
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                String currentName = parser.currentName();
+                JsonToken valueToken = parser.nextToken();
+                if (fieldName.equals(currentName)) {
+                    int start = (int) parser.currentTokenLocation().getByteOffset();
+                    int end;
+                    if (valueToken == JsonToken.START_OBJECT || valueToken == JsonToken.START_ARRAY) {
+                        parser.skipChildren();
+                        end = (int) parser.currentTokenLocation().getByteOffset() + 1;
+                    } else {
+                        end = (int) parser.currentLocation().getByteOffset();
+                    }
+                    return Arrays.copyOfRange(jsonBody, start, end);
+                }
+                if (valueToken == JsonToken.START_OBJECT || valueToken == JsonToken.START_ARRAY) {
+                    parser.skipChildren();
+                }
+            }
+        }
+        throw new IllegalStateException("Field '" + fieldName + "' not found in JSON response");
     }
 
     private static Path extractResource(String resourceName, Path temp) throws Exception {

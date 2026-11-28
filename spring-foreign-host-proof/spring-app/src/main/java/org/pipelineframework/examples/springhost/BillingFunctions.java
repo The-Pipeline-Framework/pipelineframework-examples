@@ -116,13 +116,18 @@ public class BillingFunctions {
     /** Reactive {@code MANY_TO_ONE} streaming reducer computing exact decimal totals. */
     @TpfFunction(stepId = "summarise-order", outputTypeId = "OrderSummary")
     public Mono<OrderSummary> summariseOrder(Flux<OrderLine> lines) {
-        return lines.reduce(
-            new OrderSummary("", 0L, 0, BigDecimal.ZERO),
-            (acc, line) -> new OrderSummary(
+        return lines
+            .map(line -> new OrderSummary(
                 line.orderId(),
-                Math.max(acc.sequenceNumber(), line.sequenceNumber()),
-                acc.totalLines() + 1,
-                acc.grandTotal().add(line.lineAmount())));
+                line.sequenceNumber(),
+                1,
+                line.lineAmount()))
+            .reduce((acc, next) -> new OrderSummary(
+                next.orderId(),
+                Math.max(acc.sequenceNumber(), next.sequenceNumber()),
+                acc.totalLines() + next.totalLines(),
+                acc.grandTotal().add(next.grandTotal())))
+            .defaultIfEmpty(new OrderSummary("", 0L, 0, BigDecimal.ZERO));
     }
 
     /** {@link CompletionStage} {@code ONE_TO_ONE} step used before durable Await boundaries. */

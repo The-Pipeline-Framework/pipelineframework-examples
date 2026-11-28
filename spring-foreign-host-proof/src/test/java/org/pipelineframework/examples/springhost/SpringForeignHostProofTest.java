@@ -152,6 +152,20 @@ class SpringForeignHostProofTest {
                 .add(new BigDecimal("0.000000001"))
                 .multiply(BigDecimal.valueOf(3));
             assertEquals(0, expectedTotal.compareTo(summaryJson.path("grandTotal").decimalValue()));
+            assertEquals("37037036703703703670.370370370", summaryJson.path("grandTotal").decimalValue().toPlainString());
+
+            // Negative sequence numbers must not be clamped to zero by the reducer
+            TypedDurablePayload negativeSeqInput = durablePayload(
+                "BillingOrder", orderFp, catalogFp,
+                "{\"orderId\":\"ord-neg-seq\",\"sequenceNumber\":-5,\"unitAmount\":2.50,\"lineCount\":1,\"failFirstAttempt\":false}");
+            TypedDurablePayload negativeSeqSummary = summarise.applyReduce(
+                enrich.applyTransform(
+                    expand.applyOneToMany(
+                        validate.applyOneToOne(negativeSeqInput).await().atMost(Duration.ofSeconds(10)))))
+                .await().atMost(Duration.ofSeconds(10));
+            JsonNode negativeSeqJson = EXACT_JSON.readTree(negativeSeqSummary.payload());
+            assertEquals(-4L, negativeSeqJson.path("sequenceNumber").asLong());
+            assertEquals(1, negativeSeqJson.path("totalLines").asInt());
 
             // Portable BUSINESS_REJECTION is non-retryable
             TypedDurablePayload negative = durablePayload(
