@@ -90,6 +90,7 @@ import org.pipelineframework.execution.PipelineExecutionContext;
 import org.pipelineframework.execution.PipelineExecutionContextHolder;
 import org.pipelineframework.invocation.PipelineInvocationRuntime;
 import org.pipelineframework.objectpublish.ObjectPublishCompletionService;
+import org.pipelineframework.orchestrator.CanonicalFunctionHostManyToManyStep;
 import org.pipelineframework.orchestrator.CanonicalFunctionHostManyToOneStep;
 import org.pipelineframework.orchestrator.CanonicalFunctionHostOneToManyStep;
 import org.pipelineframework.orchestrator.CanonicalFunctionHostStep;
@@ -735,6 +736,13 @@ public final class PolyglotProofHarness implements AutoCloseable {
                             STEP_TIMEOUT, cmdId, diskStores.dispatchIntentStore,
                             4 * 1024 * 1024),
                         true);
+                    case "MANY_TO_MANY" -> new CanonicalFunctionHostManyToManyStep(
+                        new CanonicalFunctionHostManyToManyStep.Spec(
+                            stepId, i, inputType, inputFp, outputType, outputFp,
+                            catalogFingerprint, catalogue, stepHostUri, sharedSecret,
+                            STEP_TIMEOUT, STEP_TIMEOUT, cmdId, diskStores.dispatchIntentStore,
+                            4 * 1024 * 1024),
+                        true);
                     default -> throw new IllegalArgumentException("Unsupported cardinality: " + card);
                 };
             }
@@ -1005,6 +1013,7 @@ public final class PolyglotProofHarness implements AutoCloseable {
             case "ONE_TO_ONE", "UNARY", "SIDE_EFFECT" -> "ONE_TO_ONE";
             case "ONE_TO_MANY", "EXPANSION" -> "ONE_TO_MANY";
             case "MANY_TO_ONE", "REDUCTION" -> "MANY_TO_ONE";
+            case "MANY_TO_MANY", "BIDIRECTIONAL", "DUPLEX" -> "MANY_TO_MANY";
             default -> raw.trim().toUpperCase(Locale.ROOT);
         };
     }

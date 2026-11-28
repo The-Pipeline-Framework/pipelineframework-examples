@@ -1,0 +1,77 @@
+version: 3
+appName: InvoiceDuplexProof
+basePackage: com.example.polyglot.duplex
+transport: LOCAL
+platform: COMPUTE
+types:
+  RawLine:
+    fields:
+      - name: lineSeq
+        type: int64
+      - name: sku
+        type: string
+      - name: amount
+        type: decimal
+      - name: mode
+        type: string
+  DuplexBatch:
+    fields:
+      - name: batchSeq
+        type: int64
+      - name: lines
+        repeated: RawLine
+  ValidatedDuplexBatch:
+    fields:
+      - name: batchSeq
+        type: int64
+      - name: lines
+        repeated: RawLine
+  PricedEntry:
+    fields:
+      - name: batchSeq
+        type: int64
+      - name: lineSeq
+        type: int64
+      - name: sku
+        type: string
+      - name: amount
+        type: decimal
+      - name: mode
+        type: string
+  EnrichedEntry:
+    fields:
+      - name: batchSeq
+        type: int64
+      - name: lineSeq
+        type: int64
+      - name: sku
+        type: string
+      - name: settledAmount
+        type: decimal
+  DuplexSettlementSummary:
+    fields:
+      - name: batchSeq
+        type: int64
+      - name: lineCount
+        type: int32
+      - name: maxLineSeq
+        type: int64
+      - name: grandTotal
+        type: decimal
+steps:
+  - name: Validate Batch
+    cardinality: ONE_TO_ONE
+    input: DuplexBatch
+    output: ValidatedDuplexBatch
+  - name: Split Entries
+    cardinality: ONE_TO_MANY
+    input: ValidatedDuplexBatch
+    output: PricedEntry
+  - name: Enrich Stream
+    cardinality: MANY_TO_MANY
+    input: PricedEntry
+    output: EnrichedEntry
+  - name: Summarize Ledger
+    cardinality: MANY_TO_ONE
+    input: EnrichedEntry
+    output: DuplexSettlementSummary
