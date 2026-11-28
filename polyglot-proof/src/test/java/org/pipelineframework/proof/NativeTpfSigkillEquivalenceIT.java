@@ -50,17 +50,19 @@ import org.pipelineframework.orchestrator.ExecutionStatus;
  *   <li>Runs offline {@code tpf generate --lang py} and launches the generated Python host.</li>
  *   <li>Runs {@code tpf dev}, kills it with {@code SIGKILL} across durable {@code WAITING_EXTERNAL}
  *       Await and {@code WAIT_RETRY} boundaries, restarts {@code tpf dev} against the same
- *       {@code --data-dir}, and completes execution.</li>
+ *       {@code --data-dir}, and completes execution. (Pre-dispatch {@code QUEUED} admission restart
+ *       recovery is covered separately in {@link PolyglotCrossLanguageProofTest} because
+ *       {@code tpf dev}'s {@code POST /runs} admits and drains synchronously in one call.)</li>
  *   <li>Verifies exact status and canonical JSON equivalence (29-digit {@code decimal} and
- *       {@code int64 > 2^53}) against production {@code DynamoExecutionStateStore} on LocalStack.</li>
+ *       odd {@code int64 > 2^53}) against production {@code DynamoExecutionStateStore} on LocalStack.</li>
  * </ol>
  */
 class NativeTpfSigkillEquivalenceIT {
 
     private static final String SHARED_SECRET = "tpf-native-sigkill-eq-secret";
     private static final String EXACT_DECIMAL = "99999999999999999999.123456789";
-    private static final String EXACT_INT64 = "9007199254740993";
-    private static final String EXACT_INT64_NEXT = "9007199254740994";
+    private static final String EXACT_INT64 = "9007199254740994";
+    private static final String EXACT_INT64_NEXT = "9007199254740995";
 
     private static final ObjectMapper EXACT_JSON = PipelineJson.mapper().copy()
         .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
@@ -254,13 +256,9 @@ class NativeTpfSigkillEquivalenceIT {
             return Optional.empty();
         }
         String plat = platform.orElseThrow();
-        Path cacheRoot = Path.of("target", "tpf-native-cache", plat).toAbsolutePath().normalize();
-        Path cachedBin = cacheRoot.resolve("bin").resolve("tpf");
-        if (Files.isExecutable(cachedBin)) {
-            return Optional.of(cachedBin);
-        }
 
-        // Download latest published native tpf archive from GitHub Releases with SHA-256 verification
+        // Resolve current `latest` release metadata first so cached binaries are always bound to the
+        // exact published digest (preventing stale cache reuse when `latest` advances).
         try {
             HttpRequest.Builder metaReq = HttpRequest.newBuilder(
                     URI.create("https://api.github.com/repos/The-Pipeline-Framework/pipelineframework-cli/releases/tags/latest"))
@@ -296,10 +294,17 @@ class NativeTpfSigkillEquivalenceIT {
                 return Optional.empty();
             }
             JsonNode archiveMeta = EXACT_JSON.readTree(metaAssetResp.body());
-            String expectedSha = archiveMeta.path("sha256").asText("");
-            if (expectedSha.isBlank()) {
+            String expectedSha = archiveMeta.path("sha256").asText("").trim().toLowerCase(Locale.ROOT);
+            if (!expectedSha.matches("[0-9a-f]{64}")) {
                 return Optional.empty();
             }
+
+            Path cacheRoot = Path.of("target", "tpf-native-cache", plat, expectedSha).toAbsolutePath().normalize();
+            Path cachedBin = cacheRoot.resolve("bin").resolve("tpf");
+            if (Files.isExecutable(cachedBin)) {
+                return Optional.of(cachedBin);
+            }
+
             HttpResponse<byte[]> zipResp = HTTP.send(
                 HttpRequest.newBuilder(URI.create(zipUrl)).timeout(Duration.ofMinutes(2)).build(),
                 HttpResponse.BodyHandlers.ofByteArray());
@@ -381,9 +386,27 @@ class NativeTpfSigkillEquivalenceIT {
         Path binary, Path home, Path emptyPathDir, List<String> args
     ) throws Exception {
         Process proc = nativeProcessBuilder(binary, home, emptyPathDir, args).start();
-        String out = new String(proc.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        assertTrue(proc.waitFor(60, TimeUnit.SECONDS), "Native tpf command timed out:\n" + out);
-        return new ProcessResult(proc.exitValue(), out);
+        CompletableFuture<String> outputFuture = new CompletableFuture<>();
+        Thread drainer = new Thread(() -> {
+            try (InputStream in = proc.getInputStream()) {
+                outputFuture.complete(new String(in.readAllBytes(), StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                outputFuture.complete("[stdout read error: " + e.getMessage() + "]");
+            }
+        }, "native-tpf-cmd-stdout");
+        drainer.setDaemon(true);
+        drainer.start();
+        try {
+            boolean finished = proc.waitFor(60, TimeUnit.SECONDS);
+            if (!finished) {
+                terminateProcess(proc);
+            }
+            String out = outputFuture.get(5, TimeUnit.SECONDS);
+            assertTrue(finished, "Native tpf command timed out:\n" + out);
+            return new ProcessResult(proc.exitValue(), out);
+        } finally {
+            terminateProcess(proc);
+        }
     }
 
     private static NativeDevProcess startNativeDev(
