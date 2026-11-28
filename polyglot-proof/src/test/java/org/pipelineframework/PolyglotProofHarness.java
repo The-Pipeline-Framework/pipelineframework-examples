@@ -147,6 +147,22 @@ public final class PolyglotProofHarness implements AutoCloseable {
         .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
     private static final Duration STEP_TIMEOUT = Duration.ofSeconds(10);
+    // Mutiny's global worker pool threads inherit the TCCL active when each thread is spawned.
+    // A single static delegating ClassLoader ensures worker threads reused across test classes
+    // always resolve the currently active harness's order.json rather than a deleted @TempDir.
+    private static final java.util.concurrent.atomic.AtomicReference<java.net.URL> ACTIVE_ORDER_URL =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    private static final ClassLoader DELEGATING_ORDER_CLASS_LOADER =
+        new ClassLoader(PolyglotProofHarness.class.getClassLoader()) {
+            @Override
+            public Enumeration<java.net.URL> getResources(String name) throws IOException {
+                java.net.URL active = ACTIVE_ORDER_URL.get();
+                if ("META-INF/pipeline/order.json".equals(name) && active != null) {
+                    return Collections.enumeration(List.of(active));
+                }
+                return super.getResources(name);
+            }
+        };
 
     private final PipelineTemplateConfig template;
     private final PipelineContractDescriptor contract;
@@ -157,7 +173,7 @@ public final class PolyglotProofHarness implements AutoCloseable {
     private final ExecutionStateStore stateStore;
     private final QueueAsyncCoordinator coordinator;
     private final PipelineExecutionService executionService;
-    private final ClassLoader orderClassLoader;
+    private final java.net.URL orderUrl;
     private final Queue<ExecutionWorkItem> workQueue = new ConcurrentLinkedQueue<>();
     private final Queue<DeadLetterEnvelope> deadLetters = new ConcurrentLinkedQueue<>();
     private final Map<Integer, String> awaitOutputTypes = new LinkedHashMap<>();
@@ -246,15 +262,7 @@ public final class PolyglotProofHarness implements AutoCloseable {
             "boundarySchemaVersion", 1,
             "stepBoundaries", edges,
             "definitionBoundaries", List.of())));
-        var orderUrl = orderFile.toUri().toURL();
-        this.orderClassLoader = new ClassLoader(PolyglotProofHarness.class.getClassLoader()) {
-            @Override
-            public Enumeration<java.net.URL> getResources(String name) throws IOException {
-                return "META-INF/pipeline/order.json".equals(name)
-                    ? Collections.enumeration(List.of(orderUrl))
-                    : super.getResources(name);
-            }
-        };
+        this.orderUrl = orderFile.toUri().toURL();
 
         DurableAwaitCoordinator awaitCoordinator = new DurableAwaitCoordinator(
             diskStores.interactionStore, diskStores.unitStore);
@@ -482,22 +490,26 @@ public final class PolyglotProofHarness implements AutoCloseable {
             PipelineTransitionWorker tcclWorker = new PipelineTransitionWorker() {
                 @Override
                 public Uni<TransitionResultEnvelope> executeTransition(TransitionCommandEnvelope command) {
+                    java.net.URL previousOrderUrl = ACTIVE_ORDER_URL.getAndSet(orderUrl);
                     ClassLoader previous = Thread.currentThread().getContextClassLoader();
-                    Thread.currentThread().setContextClassLoader(orderClassLoader);
+                    Thread.currentThread().setContextClassLoader(DELEGATING_ORDER_CLASS_LOADER);
                     try {
                         return executionService.executeTransition(command);
                     } finally {
                         Thread.currentThread().setContextClassLoader(previous);
+                        ACTIVE_ORDER_URL.set(previousOrderUrl);
                     }
                 }
                 @Override public String providerName() { return executionService.providerName(); }
             };
+            java.net.URL previousOrderUrl = ACTIVE_ORDER_URL.getAndSet(orderUrl);
             ClassLoader previous = Thread.currentThread().getContextClassLoader();
-            Thread.currentThread().setContextClassLoader(orderClassLoader);
+            Thread.currentThread().setContextClassLoader(DELEGATING_ORDER_CLASS_LOADER);
             try {
                 coordinator.processExecutionWorkItem(item, tcclWorker).await().atMost(TIMEOUT);
             } finally {
                 Thread.currentThread().setContextClassLoader(previous);
+                ACTIVE_ORDER_URL.set(previousOrderUrl);
             }
         }
     }
